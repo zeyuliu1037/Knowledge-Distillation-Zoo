@@ -133,3 +133,4 @@ datasets/
 kd_losses/kdsvd.py
 results/
 train.sh
+vgg16/

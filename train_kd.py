@@ -374,12 +374,14 @@ def train(train_loader, nets, optimizer, criterions, epoch):
 		if args.kd_mode in ['sobolev', 'lwm']:
 			img.requires_grad = True
 
-		stem_s, rb1_s, rb2_s, rb3_s, feat_s, out_s = snet(img)
-		stem_t, rb1_t, rb2_t, rb3_t, feat_t, out_t = tnet(img)
+		stem_s, out_s, _ = snet(img)
+		stem_t, out_t, _ = tnet(img)
 
 		cls_loss = criterionCls(out_s, target)
 		if args.kd_mode in ['logits', 'st']:
 			kd_loss = criterionKD(out_s, out_t.detach()) * args.lambda_kd
+		if args.kd_mode == 'stemAndOut':
+			kd_loss = criterionKD(out_s, out_t.detach() + criterionKD(stem_s, stem_t.detach())) / 2.0 * args.lambda_kd
 		elif args.kd_mode in ['fitnet', 'nst']:
 			kd_loss = criterionKD(rb3_s[1], rb3_t[1].detach()) * args.lambda_kd
 		elif args.kd_mode in ['at', 'sp']:
