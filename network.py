@@ -4,6 +4,7 @@ from __future__ import division
 import torch
 import torch.nn as nn
 from utils import HoyerBiAct, customConv2
+import torch.nn.functional as F
 
 
 
@@ -24,166 +25,141 @@ def define_tsnet(name, num_class, cuda=True):
 
     return net
 
+def conv3x3(inplanes, out_planes, stride=1):
+    """3x3 convolution with padding"""
+    return nn.Conv2d(inplanes, out_planes, kernel_size=3, stride=stride,
+                     padding=1, bias=False)
 
-class resblock(nn.Module):
-    def __init__(self, in_channels, out_channels, return_before_act):
-        super(resblock, self).__init__()
-        self.return_before_act = return_before_act
-        self.downsample = (in_channels != out_channels)
-        if self.downsample:
-            self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=2, padding=1, bias=False)
-            self.ds    = nn.Sequential(*[
-                            nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=2, bias=False),
-                            nn.BatchNorm2d(out_channels)
-                            ])
-        else:
-            self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=1, padding=1, bias=False)
-            self.ds    = None
-        self.bn1   = nn.BatchNorm2d(out_channels)
-        self.relu  = nn.ReLU()
-        self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=3, stride=1, padding=1, bias=False)
-        self.bn2   = nn.BatchNorm2d(out_channels)
+
+def conv1x1(inplanes, out_planes, stride=1):
+    """1x1 convolution"""
+    return nn.Conv2d(inplanes, out_planes, kernel_size=1, stride=stride, bias=False)
+
+class BasicBlock(nn.Module):
+    expansion = 1
+
+    def __init__(self, inplanes, planes, stride=1, downsample=None, spike_type='sum', \
+         x_thr_scale=1.0, if_spike=True):
+        super(BasicBlock, self).__init__()
+
+        self.act = HoyerBiAct(num_features=inplanes, spike_type=spike_type, x_thr_scale=x_thr_scale, if_spike=if_spike)
+        self.conv = conv3x3(inplanes, planes,stride=stride)
+        self.bn1 = nn.BatchNorm2d(planes)
+
+        self.downsample = downsample
 
     def forward(self, x):
         residual = x
+        # always spike
+        out = self.act(x)
+        out = self.conv(out)
+        out = self.bn1(out)
 
-        pout = self.conv1(x) # pout: pre out before activation
-        pout = self.bn1(pout)
-        pout = self.relu(pout)
+        if self.downsample is not None:
+            residual = self.downsample(x)
 
-        pout = self.conv2(pout)
-        pout = self.bn2(pout)
+        out += residual
 
-        if self.downsample:
-            residual = self.ds(x)
+        return out
 
-        pout += residual
-        out  = self.relu(pout)
+class HoyerResNet(nn.Module):
+    def __init__(self, block, num_blocks, labels=10, dataset = 'CIFAR10', loss_type='sum', spike_type = 'sum', start_spike_layer=50, x_thr_scale=1.0, first_ch=64):
+        
+        super(HoyerResNet, self).__init__()
+        self.inplanes = first_ch
+        self.spike_type     = spike_type
+        self.loss_type     = loss_type
+        self.x_thr_scale    = x_thr_scale
+        self.if_spike       = True if start_spike_layer == 0 else False 
+        if dataset == 'CIFAR10':
+            self.conv1 = nn.Sequential(
+                                nn.Conv2d(3, self.inplanes, kernel_size=3, stride=1, padding=1, bias=False),
+                                # customConv2(in_channels=3, out_channels=64, kernel_size=(3 ,3), stride = 1, padding = 1),
+                                nn.BatchNorm2d(self.inplanes),
+                                HoyerBiAct(num_features=self.inplanes, spike_type=self.spike_type, x_thr_scale=self.x_thr_scale, if_spike=self.if_spike),
 
-        if not self.return_before_act:
-            return out
+                                nn.Conv2d(self.inplanes, self.inplanes, kernel_size=3, stride=1, padding=1, bias=False),
+                                nn.BatchNorm2d(self.inplanes),
+
+                                HoyerBiAct(num_features=self.inplanes, spike_type=self.spike_type, x_thr_scale=self.x_thr_scale, if_spike=self.if_spike),
+                                nn.Conv2d(self.inplanes, self.inplanes, kernel_size=3, stride=1, padding=1, bias=False),
+                                )
+        elif dataset == 'IMAGENET':
+            self.conv1 = nn.Conv2d(3, self.inplanes, kernel_size=7, stride=2, padding=3,
+                                bias=False)
         else:
-            return pout, out
+            raise RuntimeError('only for ciafar10 and imagenet now')
+        self.bn1 = nn.BatchNorm2d(self.inplanes)
+        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
+        self.layer1 = self._make_layer(block, 64, num_blocks[0])
+        self.layer2 = self._make_layer(block, 128, num_blocks[1], stride=2)
+        self.layer3 = self._make_layer(block, 256, num_blocks[2], stride=2)
+        self.layer4 = self._make_layer(block, 512, num_blocks[3], stride=2)
+        self.fc_act = HoyerBiAct(spike_type='sum', x_thr_scale=self.x_thr_scale, if_spike=self.if_spike)
+        self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
+        self.fc = nn.Linear(512 * block.expansion, labels)
 
 
-class resnet20(nn.Module):
-    def __init__(self, num_class):
-        super(resnet20, self).__init__()
-        self.conv1   = nn.Conv2d(3, 16, kernel_size=3, stride=1, padding=1, bias=False)
-        self.bn1     = nn.BatchNorm2d(16)
-        self.relu    = nn.ReLU()
+    def _make_layer(self, block, planes, blocks, stride=1):
+        downsample = None
+        if stride != 1 or self.inplanes != planes * block.expansion:
+            # 1.0 maxpool + bn + spike + conv1x1 for resnet18 with vgg, it is the best
+            downsample = nn.Sequential(
+                nn.MaxPool2d(kernel_size=2, stride=stride),
+                nn.BatchNorm2d(self.inplanes),
+                HoyerBiAct(num_features=self.inplanes, spike_type=self.spike_type, x_thr_scale=self.x_thr_scale, if_spike=self.if_spike),
+                # nn.AvgPool2d(kernel_size=2, stride=stride),
+                conv1x1(self.inplanes, planes * block.expansion),
+            )
 
-        self.res1 = self.make_layer(resblock, 3, 16, 16)
-        self.res2 = self.make_layer(resblock, 3, 16, 32)
-        self.res3 = self.make_layer(resblock, 3, 32, 64)
+        layers = []
+        layers.append(block(self.inplanes, planes, stride, downsample, spike_type=self.spike_type, x_thr_scale=self.x_thr_scale))
+        self.inplanes = planes * block.expansion
+        for _ in range(1, blocks):
+            layers.append(block(self.inplanes, planes, spike_type=self.spike_type, x_thr_scale=self.x_thr_scale))
 
-        self.avgpool = nn.AvgPool2d(8)
-        self.fc      = nn.Linear(64, num_class)
-
-        for m in self.modules():
-            if isinstance(m, nn.Conv2d):
-                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
-                if m.bias is not None:
-                    nn.init.constant_(m.bias, 0)
-            elif isinstance(m, nn.BatchNorm2d):
-                nn.init.constant_(m.weight, 1)
-                nn.init.constant_(m.bias, 0)
-
-        self.num_class = num_class
-
-    def make_layer(self, block, num, in_channels, out_channels): # num must >=2
-        layers = [block(in_channels, out_channels, False)]
-        for i in range(num-2):
-            layers.append(block(out_channels, out_channels, False))
-        layers.append(block(out_channels, out_channels, True))
         return nn.Sequential(*layers)
 
-    def forward(self, x):
-        pstem = self.conv1(x) # pstem: pre stem before activation
-        pstem = self.bn1(pstem)
-        stem  = self.relu(pstem)
-        stem  = (pstem, stem)
+    def hoyer_loss(self, x):
+        x[x<0]=0
+        if torch.sum(torch.abs(x))>0: #  and l < self.start_spike_layer
+            if self.loss_type == 'mean':
+                return torch.mean(torch.sum(torch.abs(x), dim=(1,2,3))**2 / torch.sum((x)**2, dim=(1,2,3)))
+            elif self.loss_type == 'sum':
+                return  (torch.sum(torch.abs(x))**2 / torch.sum((x)**2))
+            elif self.loss_type == 'cw':
+                hoyer_thr = torch.sum((x)**2, dim=(0,2,3)) / torch.sum(torch.abs(x), dim=(0,2,3))
+                # 1.0 is the max thr
+                hoyer_thr = torch.nan_to_num(hoyer_thr, nan=1.0)
+                return torch.mean(hoyer_thr)
+        return 0.0
 
-        rb1 = self.res1(stem[1])
-        rb2 = self.res2(rb1[1])
-        rb3 = self.res3(rb2[1])
-
-        feat = self.avgpool(rb3[1])
-        feat = feat.view(feat.size(0), -1)
-        out  = self.fc(feat)
-
-        return stem, rb1, rb2, rb3, feat, out
-
-    def get_channel_num(self):
-        return [16, 16, 32, 64, 64, self.num_class]
-
-    def get_chw_num(self):
-        return [(16, 32, 32),
-                (16, 32, 32),
-                (32, 16, 16),
-                (64, 8 , 8 ),
-                (64,),
-                (self.num_class,)]
-
-
-class resnet110(nn.Module):
-    def __init__(self, num_class):
-        super(resnet110, self).__init__()
-        self.conv1   = nn.Conv2d(3, 16, kernel_size=3, stride=1, padding=1, bias=False)
-        self.bn1     = nn.BatchNorm2d(16)
-        self.relu    = nn.ReLU()
-
-        self.res1 = self.make_layer(resblock, 18, 16, 16)
-        self.res2 = self.make_layer(resblock, 18, 16, 32)
-        self.res3 = self.make_layer(resblock, 18, 32, 64)
-
-        self.avgpool = nn.AvgPool2d(8)
-        self.fc      = nn.Linear(64, num_class)
-
-        for m in self.modules():
-            if isinstance(m, nn.Conv2d):
-                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
-                if m.bias is not None:
-                    nn.init.constant_(m.bias, 0)
-            elif isinstance(m, nn.BatchNorm2d):
-                nn.init.constant_(m.weight, 1)
-                nn.init.constant_(m.bias, 0)
-
-        self.num_class = num_class
-
-    def make_layer(self, block, num, in_channels, out_channels):  # num must >=2
-        layers = [block(in_channels, out_channels, False)]
-        for i in range(num-2):
-            layers.append(block(out_channels, out_channels, False))
-        layers.append(block(out_channels, out_channels, True))
-        return nn.Sequential(*layers)
 
     def forward(self, x):
-        pstem = self.conv1(x) # pstem: pre stem before activation
-        pstem = self.bn1(pstem)
-        stem  = self.relu(pstem)
-        stem  = (pstem, stem)
+        act_out = 0.0
+        x = self.conv1(x)
+        x = self.maxpool(x)
+        x = self.bn1(x) 
+        stem_out = F.relu(x.clone())
+        act_out += self.hoyer_loss(x.clone())
 
-        rb1 = self.res1(stem[1])
-        rb2 = self.res2(rb1[1])
-        rb3 = self.res3(rb2[1])
+        for i,layers in enumerate([self.layer1, self.layer2, self.layer3, self.layer4]):
+            for l in layers:
+                x = l(x)
+                act_out += self.hoyer_loss(x.clone())
+     
+        x = self.avgpool(x)
+        x = x.view(x.size(0), -1)
+        x = self.fc_act(x)
+        x = self.fc(x)
 
-        feat = self.avgpool(rb3[1])
-        feat = feat.view(feat.size(0), -1)
-        out  = self.fc(feat)
+        return stem_out, x, act_out
 
-        return stem, rb1, rb2, rb3, feat, out
+def resnet20(pretrained=False, **kwargs):
+    """Constructs a BiRealNet-20 model. """
+    model = HoyerResNet(BasicBlock, [4, 4, 4, 4], **kwargs)
+    return model
 
-    def get_channel_num(self):
-        return [16, 16, 32, 64, 64, self.num_class]
-
-    def get_chw_num(self):
-        return [(16, 32, 32),
-                (16, 32, 32),
-                (32, 16, 16),
-                (64, 8 , 8 ),
-                (64,),
-                (self.num_class,)]
 cfg = {
     'VGG11': [64, 'M', 128, 'M', 256, 256, 'M', 512, 512, 'M', 512, 512],
     'VGG13': [64, 64, 'M', 128, 128, 'M', 256, 256, 'M', 512, 512, 'M', 512, 512],
@@ -248,7 +224,7 @@ class spike_vgg16(nn.Module):
             out = l(out)
             if isinstance(l, nn.BatchNorm2d) and first_layer:
                 first_layer = False
-                out_first = out.clone()
+                stem_out = out.clone()
 
             if isinstance(l, HoyerBiAct):
                 act_loss += self.hoyer_loss(out.clone())
@@ -263,7 +239,7 @@ class spike_vgg16(nn.Module):
                 act_loss += self.hoyer_loss(out.clone())
             # out = l(out)
  
-        return out_first, out, act_loss
+        return stem_out, out, act_loss
 
     def _make_layers(self, cfg):
         layers = []

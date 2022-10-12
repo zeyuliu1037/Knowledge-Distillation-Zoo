@@ -249,7 +249,7 @@ def main():
 		train(train_loader, nets, optimizer, criterions, epoch)
 
 		# evaluate on testing set
-		logging.info('Testing the models......')
+		# logging.info('Testing the models......')
 		test_top1, test_top5 = test(test_loader, nets, criterions, epoch)
 
 		epoch_duration = time.time() - epoch_start_time
@@ -261,14 +261,14 @@ def main():
 			best_top1 = test_top1
 			best_top5 = test_top5
 			is_best = True
-		logging.info('Saving models......')
-		save_checkpoint({
-			'epoch': epoch,
-			'snet': snet.state_dict(),
-			'tnet': tnet.state_dict(),
-			'prec@1': test_top1,
-			'prec@5': test_top5,
-		}, is_best, args.save_root)
+			logging.info('Saving models......')
+			save_checkpoint({
+				'epoch': epoch,
+				'snet': snet.state_dict(),
+				'tnet': tnet.state_dict(),
+				'prec@1': test_top1,
+				'prec@5': test_top5,
+			}, is_best, args.save_root)
 
 
 def train_init(train_loader, nets, optimizer, criterions, total_epoch):
@@ -433,17 +433,13 @@ def train(train_loader, nets, optimizer, criterions, epoch):
 		batch_time.update(time.time() - end)
 		end = time.time()
 
-		if i % args.print_freq == 0:
-			log_str = ('Epoch[{0}]:[{1:03}/{2:03}] '
-					   'Time:{batch_time.val:.4f} '
-					   'Data:{data_time.val:.4f}  '
-					   'Cls:{cls_losses.val:.4f}({cls_losses.avg:.4f})  '
-					   'KD:{kd_losses.val:.4f}({kd_losses.avg:.4f})  '
-					   'prec@1:{top1.val:.2f}({top1.avg:.2f})  '
-					   'prec@5:{top5.val:.2f}({top5.avg:.2f})'.format(
-					   epoch, i, len(train_loader), batch_time=batch_time, data_time=data_time,
-					   cls_losses=cls_losses, kd_losses=kd_losses, top1=top1, top5=top5))
-			logging.info(log_str)
+	log_str = ('Epoch[{epoch}]: '
+				'Cls:{cls_losses.avg:.4f}  '
+				'KD:{kd_losses.avg:.4f}  '
+				'prec@1:{top1.avg:.2f}  '
+				'prec@5:{top5.avg:.2f}'.format(
+				epoch, cls_losses=cls_losses, kd_losses=kd_losses, top1=top1, top5=top5))
+	logging.info(log_str)
 
 
 def test(test_loader, nets, criterions, epoch):
@@ -525,7 +521,7 @@ def test(test_loader, nets, criterions, epoch):
 		top5.update(prec5.item(), img.size(0))
 
 	f_l = [cls_losses.avg, kd_losses.avg, top1.avg, top5.avg]
-	logging.info('Cls: {:.4f}, KD: {:.4f}, Prec@1: {:.2f}, Prec@5: {:.2f}'.format(*f_l))
+	logging.info('Testing: Cls: {:.4f}, KD: {:.4f}, Prec@1: {:.2f}, Prec@5: {:.2f}'.format(*f_l))
 
 	return top1.avg, top5.avg
 
@@ -549,7 +545,7 @@ def adjust_lr(optimizer, epoch):
 	lr_list += [args.lr*scale*scale] * 50
 
 	lr = lr_list[epoch-1]
-	logging.info('Epoch: {}  lr: {:.3f}'.format(epoch, lr))
+	logging.info('Epoch: {}  lr: {:.1e}'.format(epoch, lr))
 	for param_group in optimizer.param_groups:
 		param_group['lr'] = lr
 

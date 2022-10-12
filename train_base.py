@@ -24,7 +24,6 @@ parser = argparse.ArgumentParser(description='train base net')
 
 # various path
 parser.add_argument('--save_root', type=str, default='./results', help='models and logs are saved here')
-parser.add_argument('--img_root', type=str, default='./datasets', help='path name of image dataset')
 
 # training hyper parameters
 parser.add_argument('--print_freq', type=int, default=50, help='frequency of showing training results on console')
@@ -163,7 +162,7 @@ def main():
         train(train_loader, net, optimizer, criterion, epoch)
 
         # evaluate on testing set
-        logging.info('Testing the models......')
+        # logging.info('Testing the models......')
         test_top1, test_top5 = test(test_loader, net, criterion)
 
         epoch_duration = time.time() - epoch_start_time
@@ -175,18 +174,16 @@ def main():
             best_top1 = test_top1
             best_top5 = test_top5
             is_best = True
-        logging.info('Saving models, the best accuracy is {} ......'.format(best_top1))
-        save_checkpoint({
-            'epoch': epoch,
-            'net': net.state_dict(),
-            'prec@1': test_top1,
-            'prec@5': test_top5,
-        }, is_best, args.save_root)
+            logging.info('Saving models, the best accuracy is {} ......'.format(best_top1))
+            save_checkpoint({
+                'epoch': epoch,
+                'net': net.state_dict(),
+                'prec@1': test_top1,
+                'prec@5': test_top5,
+            }, is_best, args.save_root)
 
 
 def train(train_loader, net, optimizer, criterion, epoch, hoyer_decay=1e-8):
-    batch_time = AverageMeter()
-    data_time  = AverageMeter()
     losses     = AverageMeter()
     act_losses   = AverageMeter()
     total_losses = AverageMeter()
@@ -195,9 +192,7 @@ def train(train_loader, net, optimizer, criterion, epoch, hoyer_decay=1e-8):
 
     net.train()
 
-    end = time.time()
     for i, (img, target) in enumerate(train_loader, start=1):
-        data_time.update(time.time() - end)
 
         if args.cuda:
             img = img.cuda(non_blocking=True)
@@ -220,21 +215,14 @@ def train(train_loader, net, optimizer, criterion, epoch, hoyer_decay=1e-8):
         total_loss.backward()
         optimizer.step()
 
-        batch_time.update(time.time() - end)
-        end = time.time()
-
-        if i % args.print_freq == 0:
-            log_str = ('Epoch[{0}]:[{1:03}/{2:03}] '
-                       'Time:{batch_time.val:.4f} '
-                       'Data:{data_time.val:.4f}  '
-                       'loss:{losses.val:.4f}({losses.avg:.4f})  '
-                       'act_loss:{act_losses.val:.4f}({act_losses.avg:.4f})  '
-                       'total_loss:{total_losses.val:.4f}({total_losses.avg:.4f})  '
-                       'prec@1:{top1.val:.2f}({top1.avg:.2f})  '
-                       'prec@5:{top5.val:.2f}({top5.avg:.2f})'.format(
-                       epoch, i, len(train_loader), batch_time=batch_time, data_time=data_time,
-                       losses=losses, act_losses=act_losses, total_losses=total_losses, top1=top1, top5=top5))
-            logging.info(log_str)
+    log_str = ('Epoch[{epoch}]:  '
+                'loss:{losses.avg:.4f}  '
+                'act_loss:{act_losses.avg:.4f}  '
+                'total_loss:{total_losses.avg:.4f}  '
+                'prec@1:{top1.avg:.2f}  '
+                'prec@5:{top5.avg:.2f} '.format(
+                epoch, losses=losses, act_losses=act_losses, total_losses=total_losses, top1=top1, top5=top5))
+    logging.info(log_str)
 
 
 def test(test_loader, net, criterion):
@@ -261,7 +249,7 @@ def test(test_loader, net, criterion):
         top5.update(prec5.item(), img.size(0))
 
     f_l = [losses.avg, top1.avg, top5.avg]
-    logging.info('Loss: {:.4f}, Prec@1: {:.2f}, Prec@5: {:.2f}'.format(*f_l))
+    logging.info('Testing: Loss: {:.4f}, Prec@1: {:.2f}, Prec@5: {:.2f}'.format(*f_l))
 
     return top1.avg, top5.avg
 
