@@ -36,6 +36,8 @@ parser.add_argument('--weight_decay', type=float, default=1e-4, help='weight dec
 parser.add_argument('--num_class', type=int, default=10, help='number of classes')
 parser.add_argument('--cuda', type=int, default=1)
 
+parser.add_argument('--net_type', type=str, default='ori')
+parser.add_argument('--first_ch', type=int, default=64)
 # others
 parser.add_argument('--seed', type=int, default=2, help='random seed')
 parser.add_argument('--note', type=str, default='try', help='note for this run')
@@ -70,7 +72,7 @@ def main():
     logging.info("unparsed_args = %s", unparsed)
 
     logging.info('----------- Network Initialization --------------')
-    net = define_tsnet(name=args.net_name, num_class=args.num_class, cuda=args.cuda, pretrained=args.pretrained)
+    net = define_tsnet(name=args.net_name, num_class=args.num_class, net_type=args.net_type, first_ch=args.first_ch, cuda=args.cuda, pretrained=args.pretrained)
     logging.info('%s', net)
     logging.info("param size = %fMB", count_parameters_in_MB(net))
     logging.info('-----------------------------------------------')

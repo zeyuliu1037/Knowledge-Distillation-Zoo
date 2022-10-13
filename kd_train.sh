@@ -10,4 +10,6 @@ CUDA_VISIBLE_DEVICES=1 python -u train_kd.py \
                            --lr 1e-5 \
                            --kd_mode logits \
                            --lambda_kd 0.1 \
+                           --net_type 'ori' \
+                           --first_ch 64 \
                            --note logits-c10-vgg16-kd_logits

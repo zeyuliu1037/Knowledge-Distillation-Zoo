@@ -8,13 +8,13 @@ import torch.nn.functional as F
 
 
 
-def define_tsnet(name, num_class, net_type, cuda=True, pretrained=None):
+def define_tsnet(name, num_class, net_type='ori', first_ch=64, cuda=True, pretrained=None):
     if name == 'resnet20':
-        net = resnet20(num_class=num_class, net_type=net_type)
-    elif name == 'resnet110':
-        net = resnet110(num_class=num_class)
+        net = resnet20(num_class=num_class, net_type=net_type, first_ch=first_ch)
+    elif name == 'resnet18':
+        net = resnet18(num_class=num_class, net_type=net_type, first_ch=first_ch)
     elif name == 'vgg16':
-        net = spike_vgg16(num_class=num_class, net_type=net_type)
+        net = spike_vgg16(num_class=num_class, net_type=net_type, first_ch=first_ch)
     else:
         raise Exception('model name does not exist.')
 
@@ -164,6 +164,11 @@ class HoyerResNet(nn.Module):
         return stem_out, x, act_out
 
 def resnet20(pretrained=False, **kwargs):
+    """Constructs a BiRealNet-20 model. """
+    model = HoyerResNet(BasicBlock, [4, 4, 4, 4], **kwargs)
+    return model
+
+def resnet18(pretrained=False, **kwargs):
     """Constructs a BiRealNet-20 model. """
     model = HoyerResNet(BasicBlock, [4, 4, 4, 4], **kwargs)
     return model
