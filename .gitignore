@@ -134,3 +134,5 @@ kd_losses/kdsvd.py
 results/
 train.sh
 vgg16/
+model_t
+cifar_data

@@ -1,0 +1,13 @@
+CUDA_VISIBLE_DEVICES=1 python -u train_kd.py \
+                           --save_root "./results/logits/" \
+                           --t_model "model_t/ann_vgg16_light_cifar10_202209290044.pth" \
+                           --s_init "vgg16/base/base-c10-vgg16/model_best.pth.tar" \
+                           --data_name cifar10 \
+                           --num_class 10 \
+                           --t_name vgg16 \
+                           --s_name vgg16 \
+                           --optimizer 'Adam' \
+                           --lr 1e-5 \
+                           --kd_mode logits \
+                           --lambda_kd 0.1 \
+                           --note logits-c10-vgg16-kd_logits

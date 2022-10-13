@@ -39,6 +39,8 @@ parser.add_argument('--cuda', type=int, default=1)
 # others
 parser.add_argument('--seed', type=int, default=2, help='random seed')
 parser.add_argument('--note', type=str, default='try', help='note for this run')
+parser.add_argument('--test_only', action='store_true', help='perform only inference')
+parser.add_argument('--pretrained', default='', type=str, help='pretrained model to initialize ANN')
 
 # net and dataset choosen
 parser.add_argument('--data_name', type=str, required=True, help='name of dataset') # cifar10/cifar100
@@ -68,20 +70,22 @@ def main():
     logging.info("unparsed_args = %s", unparsed)
 
     logging.info('----------- Network Initialization --------------')
-    net = define_tsnet(name=args.net_name, num_class=args.num_class, cuda=args.cuda)
+    net = define_tsnet(name=args.net_name, num_class=args.num_class, cuda=args.cuda, pretrained=args.pretrained)
     logging.info('%s', net)
     logging.info("param size = %fMB", count_parameters_in_MB(net))
     logging.info('-----------------------------------------------')
 
-    # save initial parameters
-    logging.info('Saving initial parameters......') 
-    save_path = os.path.join(args.save_root, 'initial_r{}.pth.tar'.format(args.net_name[6:]))
-    torch.save({
-        'epoch': 0,
-        'net': net.state_dict(),
-        'prec@1': 0.0,
-        'prec@5': 0.0,
-    }, save_path)
+    if not args.test_only:
+        # save initial parameters
+        logging.info('Saving initial parameters......') 
+        save_path = os.path.join(args.save_root, 'initial_r{}.pth.tar'.format(args.net_name[6:]))
+        torch.save({
+            'epoch': 0,
+            'net': net.state_dict(),
+            'prec@1': 0.0,
+            'prec@5': 0.0,
+        }, save_path)
+        
 
     # initialize optimizer
     if args.optimizer == 'SGD':
@@ -106,7 +110,8 @@ def main():
     # define transforms
     if args.data_name == 'cifar10':
         mean = (0.4914, 0.4822, 0.4465)
-        std  = (0.2470, 0.2435, 0.2616)
+        # std  = (0.2470, 0.2435, 0.2616)
+        std = (0.2023, 0.1994, 0.2010)
         train_transform = transforms.Compose([
             transforms.Pad(4, padding_mode='reflect'),
             transforms.RandomCrop(32),
@@ -119,8 +124,8 @@ def main():
                 transforms.ToTensor(),
                 transforms.Normalize(mean=mean,std=std)
         ])
-        train_dataset   = dst.CIFAR10(root='./cifar_data', train=True, download=True, transform =train_transform, pin_memory=True)
-        test_dataset    = dst.CIFAR10(root='./cifar_data', train=False, download=True, transform=test_transform, pin_memory=True)
+        train_dataset   = dst.CIFAR10(root='./cifar_data', train=True, download=True, transform=train_transform)
+        test_dataset    = dst.CIFAR10(root='./cifar_data', train=False, download=True, transform=test_transform)
     elif args.data_name == 'imagenet':
         traindir    = os.path.join('/home/ubuntu/imagenet', 'train')
         valdir      = os.path.join('/home/ubuntu/imagenet', 'val')
@@ -159,7 +164,8 @@ def main():
 
         # train one epoch
         epoch_start_time = time.time()
-        train(train_loader, net, optimizer, criterion, epoch)
+        if not args.test_only:
+            train(train_loader, net, optimizer, criterion, epoch)
 
         # evaluate on testing set
         # logging.info('Testing the models......')
@@ -167,7 +173,8 @@ def main():
 
         epoch_duration = time.time() - epoch_start_time
         logging.info('Epoch time: {}s'.format(int(epoch_duration)))
-
+        if args.test_only:
+            break
         # save model
         is_best = False
         if test_top1 > best_top1:
@@ -199,11 +206,13 @@ def train(train_loader, net, optimizer, criterion, epoch, hoyer_decay=1e-8):
             target = target.cuda(non_blocking=True)
 
         # _, _, _, _, _, out = net(img)
-        _, out, act_loss = net(img)
+        _, out, act_out = net(img)
         loss = criterion(out, target)
-        act_loss = hoyer_decay*act_loss
-        total_loss = loss + act_loss
+        act_loss = (hoyer_decay*act_out).mean()
+        # print('loss: {}, act_loss: {}'.format(loss, act_loss))
+        total_loss = loss + act_loss 
         # print('out: {}, target: {}'.format(out.shape, target.shape))
+        # print('loss: ', total_loss)
         prec1, prec5 = accuracy(out, target, topk=(1,5))
         losses.update(loss.item(), img.size(0))
         act_losses.update(act_loss, img.size(0))
@@ -215,7 +224,7 @@ def train(train_loader, net, optimizer, criterion, epoch, hoyer_decay=1e-8):
         total_loss.backward()
         optimizer.step()
 
-    log_str = ('Epoch[{epoch}]:  '
+    log_str = ('Epoch[{0}]:  '
                 'loss:{losses.avg:.4f}  '
                 'act_loss:{act_losses.avg:.4f}  '
                 'total_loss:{total_losses.avg:.4f}  '
@@ -257,10 +266,10 @@ def test(test_loader, net, criterion):
 def adjust_lr(optimizer, epoch):
     #  [360, 480, 540]
     scale   = 0.2
-    lr_list =  [args.lr] * 360
-    lr_list += [args.lr*scale] * 120
-    lr_list += [args.lr*scale*scale] * 60
-    lr_list += [args.lr*scale*scale*scale] * 60
+    lr_list =  [args.lr] * 60
+    lr_list += [args.lr*scale] * 30
+    lr_list += [args.lr*scale*scale] * 15
+    lr_list += [args.lr*scale*scale*scale] * 15
 
     lr = lr_list[epoch-1]
     logging.info('Epoch: {}  lr: {:.1e}'.format(epoch, lr))

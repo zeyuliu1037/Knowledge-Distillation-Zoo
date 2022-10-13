@@ -8,15 +8,22 @@ import torch.nn.functional as F
 
 
 
-def define_tsnet(name, num_class, cuda=True):
+def define_tsnet(name, num_class, net_type, cuda=True, pretrained=None):
     if name == 'resnet20':
-        net = resnet20(num_class=num_class)
+        net = resnet20(num_class=num_class, net_type=net_type)
     elif name == 'resnet110':
         net = resnet110(num_class=num_class)
     elif name == 'vgg16':
-        net = spike_vgg16(num_class=num_class)
+        net = spike_vgg16(num_class=num_class, net_type=net_type)
     else:
         raise Exception('model name does not exist.')
+
+    if pretrained:
+        state = torch.load(pretrained, map_location='cpu')
+        if 'state_dict' in state:
+            state = state['state_dict']
+        missing_keys, unexpected_keys = net.load_state_dict(state, strict=False)
+        print('\n Missing keys : {}\n Unexpected Keys: {}'.format(missing_keys, unexpected_keys))  
 
     if cuda:
         net = torch.nn.DataParallel(net).cuda()
@@ -63,7 +70,7 @@ class BasicBlock(nn.Module):
         return out
 
 class HoyerResNet(nn.Module):
-    def __init__(self, block, num_blocks, labels=10, dataset = 'CIFAR10', loss_type='sum', spike_type = 'sum', start_spike_layer=50, x_thr_scale=1.0, first_ch=64):
+    def __init__(self, block, num_blocks, num_class=10, net_type='ori', first_ch=64, dataset = 'CIFAR10', loss_type='sum', spike_type = 'sum', start_spike_layer=0, x_thr_scale=1.0):
         
         super(HoyerResNet, self).__init__()
         self.inplanes = first_ch
@@ -73,7 +80,8 @@ class HoyerResNet(nn.Module):
         self.if_spike       = True if start_spike_layer == 0 else False 
         if dataset == 'CIFAR10':
             self.conv1 = nn.Sequential(
-                                nn.Conv2d(3, self.inplanes, kernel_size=3, stride=1, padding=1, bias=False),
+                                nn.Conv2d(3, self.inplanes, kernel_size=3, stride=1, padding=1, bias=False) if net_type == 'ori' \
+                                    else customConv2(in_channels=3, out_channels=self.inplanes, kernel_size=(3 ,3), stride = 1, padding = 1),
                                 # customConv2(in_channels=3, out_channels=64, kernel_size=(3 ,3), stride = 1, padding = 1),
                                 nn.BatchNorm2d(self.inplanes),
                                 HoyerBiAct(num_features=self.inplanes, spike_type=self.spike_type, x_thr_scale=self.x_thr_scale, if_spike=self.if_spike),
@@ -85,8 +93,8 @@ class HoyerResNet(nn.Module):
                                 nn.Conv2d(self.inplanes, self.inplanes, kernel_size=3, stride=1, padding=1, bias=False),
                                 )
         elif dataset == 'IMAGENET':
-            self.conv1 = nn.Conv2d(3, self.inplanes, kernel_size=7, stride=2, padding=3,
-                                bias=False)
+            self.conv1 = nn.Conv2d(3, self.inplanes, kernel_size=7, stride=2, padding=3, bias=False) if net_type == 'ori' \
+                else customConv2(in_channels=3, out_channels=self.inplanes, kernel_size=(7 ,7), stride = 2, padding = 3),
         else:
             raise RuntimeError('only for ciafar10 and imagenet now')
         self.bn1 = nn.BatchNorm2d(self.inplanes)
@@ -97,7 +105,7 @@ class HoyerResNet(nn.Module):
         self.layer4 = self._make_layer(block, 512, num_blocks[3], stride=2)
         self.fc_act = HoyerBiAct(spike_type='sum', x_thr_scale=self.x_thr_scale, if_spike=self.if_spike)
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
-        self.fc = nn.Linear(512 * block.expansion, labels)
+        self.fc = nn.Linear(512 * block.expansion, num_class)
 
 
     def _make_layer(self, block, planes, blocks, stride=1):
@@ -140,7 +148,7 @@ class HoyerResNet(nn.Module):
         x = self.conv1(x)
         x = self.maxpool(x)
         x = self.bn1(x) 
-        stem_out = F.relu(x.clone())
+        stem_out = x.clone()
         act_out += self.hoyer_loss(x.clone())
 
         for i,layers in enumerate([self.layer1, self.layer2, self.layer3, self.layer4]):
@@ -167,7 +175,7 @@ cfg = {
     'VGG19': [64, 64, 'M', 128, 128, 'M', 256, 256, 256, 256, 'M', 512, 512, 512, 512, 'M', 512, 512, 512, 512],
 }
 class spike_vgg16(nn.Module):
-    def __init__(self, num_class=10, linear_dropout=0.1, conv_dropout=0.1, loss_type='sum', im_size=224, spike_type='cw'):
+    def __init__(self, num_class=10, net_type='ori', first_ch=64, linear_dropout=0.1, conv_dropout=0.1, loss_type='sum', im_size=224, spike_type='cw'):
         super(spike_vgg16, self).__init__()
         self.if_spike = True
         self.conv_dropout = conv_dropout
@@ -175,8 +183,9 @@ class spike_vgg16(nn.Module):
         self.loss_type = loss_type
         fc_spike_type = 'fixed' if spike_type == 'fixed' else 'sum'
         self.x_thr_scale = 1.0
-        self.if_spike = True
         self.spike_type = spike_type
+        self.net_type = net_type
+        self.first_ch = first_ch
         self.features = self._make_layers(cfg['VGG16'])
 
         if num_class == 1000: # if dataset=='IMAGENET':
@@ -222,7 +231,7 @@ class spike_vgg16(nn.Module):
         out = x
         for l in self.features:
             out = l(out)
-            if isinstance(l, nn.BatchNorm2d) and first_layer:
+            if first_layer and isinstance(l, nn.BatchNorm2d):
                 first_layer = False
                 stem_out = out.clone()
 
@@ -250,10 +259,9 @@ class spike_vgg16(nn.Module):
             
             if x == 'M':
                 continue
-            if i == 0:
-                x=64
-                conv = nn.Conv2d(in_channels, x, kernel_size=3, padding=1, stride=1, bias=False)
-                # conv = customConv2(in_channels=3, out_channels=x, kernel_size=(3 ,3), stride = 1, padding = 1)
+            if i == 0 and self.net_type=='cus':
+                x = self.first_ch
+                conv = customConv2(in_channels=3, out_channels=x, kernel_size=(3 ,3), stride = 1, padding = 1)
                 # conv = customConv2(in_channels=3, out_channels=16, kernel_size=(7, 7), stride = 6, padding = 1)
             else:
                 conv = nn.Conv2d(in_channels, x, kernel_size=3, padding=1, stride=1, bias=False)

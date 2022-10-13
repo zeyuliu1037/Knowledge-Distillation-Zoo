@@ -1,0 +1,12 @@
+CUDA_VISIBLE_DEVICES=1 python -u train_base.py \
+                           --save_root "./vgg16/base/" \
+                           --data_name cifar10 \
+                           --epochs 1 \
+                           --lr 0.0001 \
+                           --optimizer Adam \
+                           --print_freq 200 \
+                           --num_class 10 \
+                           --net_name vgg16 \
+                           --test_only \
+                           --pretrained 'model_t/ann_vgg16_light_cifar10_202209290043.pth' \
+                           --note base-c10-vgg16_ori
