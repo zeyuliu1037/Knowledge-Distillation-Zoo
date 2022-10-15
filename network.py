@@ -18,10 +18,9 @@ def define_tsnet(name, num_class, net_type='ori', first_ch=64, cuda=True, pretra
     else:
         raise Exception('model name does not exist.')
 
-    if pretrained:
-        state = torch.load(pretrained, map_location='cpu')
-        if 'state_dict' in state:
-            state = state['state_dict']
+    state = torch.load(pretrained, map_location='cpu') if pretrained else None
+    if pretrained and 'state_dict' in state:
+        state = state['state_dict']
         missing_keys, unexpected_keys = net.load_state_dict(state, strict=False)
         print('\n Missing keys : {}\n Unexpected Keys: {}'.format(missing_keys, unexpected_keys))  
 
@@ -29,6 +28,10 @@ def define_tsnet(name, num_class, net_type='ori', first_ch=64, cuda=True, pretra
         net = torch.nn.DataParallel(net).cuda()
     else:
         net = torch.nn.DataParallel(net)
+    
+    if pretrained and 'net' in state:
+        missing_keys, unexpected_keys = net.load_state_dict(state['net'], strict=False)
+        print('\n Missing keys : {}\n Unexpected Keys: {}\n best accuracy: {}'.format(missing_keys, unexpected_keys, state['prec@1']))  
 
     return net
 

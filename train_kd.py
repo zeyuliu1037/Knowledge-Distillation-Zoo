@@ -49,6 +49,10 @@ parser.add_argument('--note', type=str, default='try', help='note for this run')
 parser.add_argument('--data_name', type=str, required=True, help='name of dataset') # cifar10/cifar100
 parser.add_argument('--t_name', type=str, required=True, help='name of teacher')    # resnet20/resnet110
 parser.add_argument('--s_name', type=str, required=True, help='name of student')    # resnet20/resnet110
+parser.add_argument('--t_type', type=str, required=True, help='type of teacher')    # resnet20/resnet110
+parser.add_argument('--s_type', type=str, required=True, help='type of student')    # resnet20/resnet110
+parser.add_argument('--t_ch', type=int, default=64, help='channel  of teacher')    # resnet20/resnet110
+parser.add_argument('--s_ch', type=int, default=64, help='channel of student')    # resnet20/resnet110
 
 # hyperparameter
 parser.add_argument('--kd_mode', type=str, required=True, help='mode of kd, which can be:'
@@ -115,62 +119,10 @@ def main():
     # define loss functions
     if args.kd_mode == 'logits':
         criterionKD = Logits()
-    elif args.kd_mode == 'st':
-        criterionKD = SoftTarget(args.T)
+
     elif args.kd_mode == 'at':
         criterionKD = AT(args.p)
-    elif args.kd_mode == 'fitnet':
-        criterionKD = Hint()
-    elif args.kd_mode == 'nst':
-        criterionKD = NST()
-    elif args.kd_mode == 'pkt':
-        criterionKD = PKTCosSim()
-    elif args.kd_mode == 'fsp':
-        criterionKD = FSP()
-    elif args.kd_mode == 'rkd':
-        criterionKD = RKD(args.w_dist, args.w_angle)
-    elif args.kd_mode == 'ab':
-        criterionKD = AB(args.m)
-    elif args.kd_mode == 'sp':
-        criterionKD = SP()
-    elif args.kd_mode == 'sobolev':
-        criterionKD = Sobolev()
-    elif args.kd_mode == 'cc':
-        criterionKD = CC(args.gamma, args.P_order)
-    elif args.kd_mode == 'lwm':
-        criterionKD = LwM()
-    elif args.kd_mode == 'irg':
-        criterionKD = IRG(args.w_irg_vert, args.w_irg_edge, args.w_irg_tran)
-    elif args.kd_mode == 'vid':
-        s_channels  = snet.module.get_channel_num()[1:4]
-        t_channels  = tnet.module.get_channel_num()[1:4]
-        criterionKD = []
-        for s_c, t_c in zip(s_channels, t_channels):
-            criterionKD.append(VID(s_c, int(args.sf*t_c), t_c, args.init_var))
-        criterionKD = [c.cuda() for c in criterionKD] if args.cuda else criterionKD
-        criterionKD = [None] + criterionKD # None is a placeholder
-    elif args.kd_mode == 'ofd':
-        s_channels  = snet.module.get_channel_num()[1:4]
-        t_channels  = tnet.module.get_channel_num()[1:4]
-        criterionKD = []
-        for s_c, t_c in zip(s_channels, t_channels):
-            criterionKD.append(OFD(s_c, t_c).cuda() if args.cuda else OFD(s_c, t_c))
-        criterionKD = [None] + criterionKD # None is a placeholder
-    elif args.kd_mode == 'afd':
-        # t_channels is same with s_channels
-        s_channels  = snet.module.get_channel_num()[1:4]
-        t_channels  = tnet.module.get_channel_num()[1:4]
-        criterionKD = []
-        for t_c in t_channels:
-            criterionKD.append(AFD(t_c, args.att_f).cuda() if args.cuda else AFD(t_c, args.att_f))
-        criterionKD = [None] + criterionKD # None is a placeholder
-        # # t_chws is same with s_chws
-        # s_chws = snet.module.get_chw_num()[1:4]
-        # t_chws = tnet.module.get_chw_num()[1:4]
-        # criterionKD = []
-        # for t_chw in t_chws:
-        # 	criterionKD.append(AFD(t_chw).cuda() if args.cuda else AFD(t_chw))
-        # criterionKD = [None] + criterionKD # None is a placeholder
+
     else:
         raise Exception('Invalid kd mode...')
     if args.cuda:
@@ -179,19 +131,6 @@ def main():
         criterionCls = torch.nn.CrossEntropyLoss()
 
     # initialize optimizer
-    # if args.kd_mode in ['vid', 'ofd', 'afd']:
-    # 	optimizer = torch.optim.SGD(chain(snet.parameters(), 
-    # 									  *[c.parameters() for c in criterionKD[1:]]),
-    # 								lr = args.lr, 
-    # 								momentum = args.momentum, 
-    # 								weight_decay = args.weight_decay,
-    # 								nesterov = True)
-    # else:
-    # 	optimizer = torch.optim.SGD(snet.parameters(),
-    # 								lr = args.lr, 
-    # 								momentum = args.momentum, 
-    # 								weight_decay = args.weight_decay,
-    # 								nesterov = True)
     if args.optimizer == 'SGD':
         optimizer = torch.optim.SGD(snet.parameters(),
                                 lr = args.lr, 
@@ -250,8 +189,8 @@ def main():
 
     # define data loader
     
-    train_loader    = torch.utils.data.DataLoader(dataset=train_dataset, batch_size=args.batch_size, num_workers=4, shuffle=True, pin_memory=True)
-    test_loader     = torch.utils.data.DataLoader(dataset=test_dataset, batch_size=args.batch_size, num_workers=4, shuffle=False, pin_memory=True)
+    train_loader    = torch.utils.data.DataLoader(dataset=train_dataset, batch_size=args.batch_size, num_workers=2, shuffle=True, pin_memory=True)
+    test_loader     = torch.utils.data.DataLoader(dataset=test_dataset, batch_size=args.batch_size, num_workers=2, shuffle=False, pin_memory=True)
 
 
     # warp nets and criterions for train and test
@@ -259,11 +198,6 @@ def main():
     criterions = {'criterionCls':criterionCls, 'criterionKD':criterionKD}
 
     # first initilizing the student nets
-    if args.kd_mode in ['fsp', 'ab']:
-        logging.info('The first stage, student initialization......')
-        train_init(train_loader, nets, optimizer, criterions, 50)
-        args.lambda_kd = 0.0
-        logging.info('The second stage, softmax training......')
 
     best_top1 = 0
     best_top5 = 0
@@ -279,7 +213,7 @@ def main():
         test_top1, test_top5 = test(test_loader, nets, criterions, epoch)
 
         epoch_duration = time.time() - epoch_start_time
-        logging.info('Epoch time: {}s'.format(int(epoch_duration)))
+        
 
         # save model
         is_best = False
@@ -296,78 +230,8 @@ def main():
                 'prec@5': test_top5,
             }, is_best, args.save_root)
 
+        logging.info('Epoch time: {}s, best accuracy is: {}'.format(int(epoch_duration), best_top1))
 
-def train_init(train_loader, nets, optimizer, criterions, total_epoch):
-    snet = nets['snet']
-    tnet = nets['tnet']
-
-    criterionCls = criterions['criterionCls']
-    criterionKD  = criterions['criterionKD']
-
-    snet.train()
-
-    for epoch in range(1, total_epoch+1):
-        adjust_lr_init(optimizer, epoch)
-
-        batch_time = AverageMeter()
-        data_time  = AverageMeter()
-        cls_losses = AverageMeter()
-        kd_losses  = AverageMeter()
-        top1       = AverageMeter()
-        top5       = AverageMeter()
-
-        epoch_start_time = time.time()
-        end = time.time()
-        for i, (img, target) in enumerate(train_loader, start=1):
-            data_time.update(time.time() - end)
-
-            if args.cuda:
-                img = img.cuda(non_blocking=True)
-                target = target.cuda(non_blocking=True)
-
-            stem_s, rb1_s, rb2_s, rb3_s, feat_s, out_s = snet(img)
-            stem_t, rb1_t, rb2_t, rb3_t, feat_t, out_t = tnet(img)
-
-            cls_loss = criterionCls(out_s, target) * 0.0
-            if args.kd_mode in ['fsp']:
-                kd_loss = (criterionKD(stem_s[1], rb1_s[1], stem_t[1].detach(), rb1_t[1].detach()) +
-                           criterionKD(rb1_s[1],  rb2_s[1], rb1_t[1].detach(),  rb2_t[1].detach()) +
-                           criterionKD(rb2_s[1],  rb3_s[1], rb2_t[1].detach(),  rb3_t[1].detach())) / 3.0 * args.lambda_kd
-            elif args.kd_mode in ['ab']:
-                kd_loss = (criterionKD(rb1_s[0], rb1_t[0].detach()) +
-                           criterionKD(rb2_s[0], rb2_t[0].detach()) +
-                           criterionKD(rb3_s[0], rb3_t[0].detach())) / 3.0 * args.lambda_kd
-            else:
-                raise Exception('Invalid kd mode...')
-            loss = cls_loss + kd_loss
-
-            prec1, prec5 = accuracy(out_s, target, topk=(1,5))
-            cls_losses.update(cls_loss.item(), img.size(0))
-            kd_losses.update(kd_loss.item(), img.size(0))
-            top1.update(prec1.item(), img.size(0))
-            top5.update(prec5.item(), img.size(0))
-
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
-
-            batch_time.update(time.time() - end)
-            end = time.time()
-
-            if i % args.print_freq == 0:
-                log_str = ('Epoch[{0}]:[{1:03}/{2:03}] '
-                           'Time:{batch_time.val:.4f} '
-                           'Data:{data_time.val:.4f}  '
-                           'Cls:{cls_losses.val:.4f}({cls_losses.avg:.4f})  '
-                           'KD:{kd_losses.val:.4f}({kd_losses.avg:.4f})  '
-                           'prec@1:{top1.val:.2f}({top1.avg:.2f})  '
-                           'prec@5:{top5.val:.2f}({top5.avg:.2f})'.format(
-                           epoch, i, len(train_loader), batch_time=batch_time, data_time=data_time,
-                           cls_losses=cls_losses, kd_losses=kd_losses, top1=top1, top5=top5))
-                logging.info(log_str)
-
-        epoch_duration = time.time() - epoch_start_time
-        logging.info('Epoch time: {}s'.format(int(epoch_duration)))
 
 
 def train(train_loader, nets, optimizer, criterions, epoch):
@@ -407,42 +271,11 @@ def train(train_loader, nets, optimizer, criterions, epoch):
         # print('kd_mode: {}, bool: {}, bool: {}'.format(args.kd_mode, (args.kd_mode == 'logits'), args.kd_mode in ['logits', 'st']))
         if args.kd_mode in ['logits', 'st']:
             kd_loss = criterionKD(out_s, out_t.detach()) * args.lambda_kd
-        elif args.kd_mode == 'stemAndOut':
-            kd_loss = criterionKD(out_s, out_t.detach() + criterionKD(stem_s, stem_t.detach())) / 2.0 * args.lambda_kd
-        elif args.kd_mode in ['fitnet', 'nst']:
-            kd_loss = criterionKD(rb3_s[1], rb3_t[1].detach()) * args.lambda_kd
+
         elif args.kd_mode in ['at', 'sp']:
             kd_loss = (criterionKD(rb1_s[1], rb1_t[1].detach()) +
                        criterionKD(rb2_s[1], rb2_t[1].detach()) +
                        criterionKD(rb3_s[1], rb3_t[1].detach())) / 3.0 * args.lambda_kd
-        elif args.kd_mode in ['pkt', 'rkd', 'cc']:
-            kd_loss = criterionKD(feat_s, feat_t.detach()) * args.lambda_kd
-        elif args.kd_mode in ['fsp']:
-            kd_loss = (criterionKD(stem_s[1], rb1_s[1], stem_t[1].detach(), rb1_t[1].detach()) +
-                       criterionKD(rb1_s[1],  rb2_s[1], rb1_t[1].detach(),  rb2_t[1].detach()) +
-                       criterionKD(rb2_s[1],  rb3_s[1], rb2_t[1].detach(),  rb3_t[1].detach())) / 3.0 * args.lambda_kd
-        elif args.kd_mode in ['ab']:
-            kd_loss = (criterionKD(rb1_s[0], rb1_t[0].detach()) +
-                       criterionKD(rb2_s[0], rb2_t[0].detach()) +
-                       criterionKD(rb3_s[0], rb3_t[0].detach())) / 3.0 * args.lambda_kd
-        elif args.kd_mode in ['sobolev']:
-            kd_loss = criterionKD(out_s, out_t, img, target) * args.lambda_kd
-        elif args.kd_mode in ['lwm']:
-            kd_loss = criterionKD(out_s, rb2_s[1], out_t, rb2_t[1], target) * args.lambda_kd
-        elif args.kd_mode in ['irg']:
-            kd_loss = criterionKD([rb2_s[1], rb3_s[1], feat_s, out_s],
-                                  [rb2_t[1].detach(),
-                                   rb3_t[1].detach(),
-                                   feat_t.detach(), 
-                                   out_t.detach()]) * args.lambda_kd
-        elif args.kd_mode in ['vid', 'afd']:
-            kd_loss = (criterionKD[1](rb1_s[1], rb1_t[1].detach()) +
-                       criterionKD[2](rb2_s[1], rb2_t[1].detach()) +
-                       criterionKD[3](rb3_s[1], rb3_t[1].detach())) / 3.0 * args.lambda_kd
-        elif args.kd_mode in ['ofd']:
-            kd_loss = (criterionKD[1](rb1_s[0], rb1_t[0].detach()) +
-                       criterionKD[2](rb2_s[0], rb2_t[0].detach()) +
-                       criterionKD[3](rb3_s[0], rb3_t[0].detach())) / 3.0 * args.lambda_kd
         else:
             raise Exception(f'Invalid kd mode...{args.kd_mode}')
         loss = cls_loss + kd_loss
@@ -492,52 +325,17 @@ def test(test_loader, nets, criterions, epoch):
             img = img.cuda(non_blocking=True)
             target = target.cuda(non_blocking=True)
 
-        if args.kd_mode in ['sobolev', 'lwm']:
-            img.requires_grad = True
-            stem_s, rb1_s, rb2_s, rb3_s, feat_s, out_s = snet(img)
-            stem_t, rb1_t, rb2_t, rb3_t, feat_t, out_t = tnet(img)
-        else:
-            with torch.no_grad():
-                stem_s, out_s, _ = snet(img)
-                stem_t, out_t, _ = tnet(img)
+        with torch.no_grad():
+            stem_s, out_s, _ = snet(img)
+            stem_t, out_t, _ = tnet(img)
 
         cls_loss = criterionCls(out_s, target)
         if args.kd_mode in ['logits', 'st']:
             kd_loss  = criterionKD(out_s, out_t.detach()) * args.lambda_kd
-        elif args.kd_mode in ['fitnet', 'nst']:
-            kd_loss = criterionKD(rb3_s[1], rb3_t[1].detach()) * args.lambda_kd
         elif args.kd_mode in ['at', 'sp']:
             kd_loss = (criterionKD(rb1_s[1], rb1_t[1].detach()) +
                        criterionKD(rb2_s[1], rb2_t[1].detach()) +
                        criterionKD(rb3_s[1], rb3_t[1].detach())) / 3.0 * args.lambda_kd
-        elif args.kd_mode in ['pkt', 'rkd', 'cc']:
-            kd_loss = criterionKD(feat_s, feat_t.detach()) * args.lambda_kd
-        elif args.kd_mode in ['fsp']:
-            kd_loss = (criterionKD(stem_s[1], rb1_s[1], stem_t[1].detach(), rb1_t[1].detach()) +
-                       criterionKD(rb1_s[1],  rb2_s[1], rb1_t[1].detach(),  rb2_t[1].detach()) +
-                       criterionKD(rb2_s[1],  rb3_s[1], rb2_t[1].detach(),  rb3_t[1].detach())) / 3.0 * args.lambda_kd
-        elif args.kd_mode in ['ab']:
-            kd_loss = (criterionKD(rb1_s[0], rb1_t[0].detach()) +
-                       criterionKD(rb2_s[0], rb2_t[0].detach()) +
-                       criterionKD(rb3_s[0], rb3_t[0].detach())) / 3.0 * args.lambda_kd
-        elif args.kd_mode in ['sobolev']:
-            kd_loss = criterionKD(out_s, out_t, img, target) * args.lambda_kd
-        elif args.kd_mode in ['lwm']:
-            kd_loss = criterionKD(out_s, rb2_s[1], out_t, rb2_t[1], target) * args.lambda_kd
-        elif args.kd_mode in ['irg']:
-            kd_loss = criterionKD([rb2_s[1], rb3_s[1], feat_s, out_s],
-                                  [rb2_t[1].detach(),
-                                   rb3_t[1].detach(),
-                                   feat_t.detach(), 
-                                   out_t.detach()]) * args.lambda_kd
-        elif args.kd_mode in ['vid', 'afd']:
-            kd_loss = (criterionKD[1](rb1_s[1], rb1_t[1].detach()) +
-                       criterionKD[2](rb2_s[1], rb2_t[1].detach()) +
-                       criterionKD[3](rb3_s[1], rb3_t[1].detach())) / 3.0 * args.lambda_kd
-        elif args.kd_mode in ['ofd']:
-            kd_loss = (criterionKD[1](rb1_s[0], rb1_t[0].detach()) +
-                       criterionKD[2](rb2_s[0], rb2_t[0].detach()) +
-                       criterionKD[3](rb3_s[0], rb3_t[0].detach())) / 3.0 * args.lambda_kd
         else:
             raise Exception('Invalid kd mode...')
 

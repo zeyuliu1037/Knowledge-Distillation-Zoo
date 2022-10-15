@@ -8,5 +8,6 @@ CUDA_VISIBLE_DEVICES=1 python -u train_base.py \
                            --num_class 10 \
                            --net_name vgg16 \
                            --test_only \
-                           --pretrained 'model_t/ann_vgg16_light_cifar10_202209290043.pth' \
+                           --net_type 'ori' \
+                           --pretrained 'vgg16/base/base-c10-vgg16_ori_finetune/model_best.pth.tar' \
                            --note base-c10-vgg16_ori

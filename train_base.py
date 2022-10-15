@@ -51,7 +51,7 @@ parser.add_argument('--net_name', type=str, required=True, help='name of basenet
 
 args, unparsed = parser.parse_known_args()
 
-args.save_root = os.path.join(args.save_root, args.note)
+args.save_root = os.path.join(f'result/{args.net_name}', args.note)
 create_exp_dir(args.save_root)
 
 log_format = '%(message)s'
@@ -190,6 +190,7 @@ def main():
                 'prec@1': test_top1,
                 'prec@5': test_top5,
             }, is_best, args.save_root)
+    logging.info('the best accuracy: top1: {}, top5: {}'.format(best_top1, best_top5))
 
 
 def train(train_loader, net, optimizer, criterion, epoch, hoyer_decay=1e-8):
@@ -267,11 +268,13 @@ def test(test_loader, net, criterion):
 
 def adjust_lr(optimizer, epoch):
     #  [360, 480, 540]
+    # lr_interval = [60, 30, 15, 15]
+    lr_interval = [360, 120, 60, 60]
     scale   = 0.2
-    lr_list =  [args.lr] * 60
-    lr_list += [args.lr*scale] * 30
-    lr_list += [args.lr*scale*scale] * 15
-    lr_list += [args.lr*scale*scale*scale] * 15
+    lr_list =  [args.lr] * lr_interval[0]
+    lr_list += [args.lr*scale] * lr_interval[1]
+    lr_list += [args.lr*scale*scale] * lr_interval[2]
+    lr_list += [args.lr*scale*scale*scale] * lr_interval[3]
 
     lr = lr_list[epoch-1]
     logging.info('Epoch: {}  lr: {:.1e}'.format(epoch, lr))
