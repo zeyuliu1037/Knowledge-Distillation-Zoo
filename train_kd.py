@@ -76,7 +76,7 @@ parser.add_argument('--att_f', type=float, default=1.0, help='attention factor o
 
 args, unparsed = parser.parse_known_args()
 
-args.save_root = os.path.join(args.save_root, args.note)
+args.save_root = os.path.join(f'results/kd/{args.s_name}', args.note)
 create_exp_dir(args.save_root)
 
 log_format = '%(message)s'
@@ -93,17 +93,19 @@ def main():
         torch.cuda.manual_seed(args.seed)
         cudnn.enabled = True
         cudnn.benchmark = True
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
     logging.info("args = %s", args)
     logging.info("unparsed_args = %s", unparsed)
 
     logging.info('----------- Network Initialization --------------')
-    snet = define_tsnet(name=args.s_name, num_class=args.num_class, net_type='cus', cuda=args.cuda)
+    snet = define_tsnet(name=args.s_name, num_class=args.num_class, net_type=args.s_type, first_ch=args.s_ch, cuda=args.cuda)
     checkpoint = torch.load(args.s_init)
     load_pretrained_model(snet, checkpoint['net'])
     logging.info('Student: %s', snet)
     logging.info('Student param size = %fMB', count_parameters_in_MB(snet))
 
-    tnet = define_tsnet(name=args.t_name, num_class=args.num_class, net_type='ori', cuda=args.cuda)
+    tnet = define_tsnet(name=args.t_name, num_class=args.num_class, net_type=args.t_type, first_ch=args.t_ch, cuda=args.cuda)
     checkpoint = torch.load(args.t_model)
     if 'net' in checkpoint:
         load_pretrained_model(tnet, checkpoint['net'])
@@ -224,8 +226,8 @@ def main():
             logging.info('Saving models......')
             save_checkpoint({
                 'epoch': epoch,
-                'snet': snet.state_dict(),
-                'tnet': tnet.state_dict(),
+                'snet': snet.module.state_dict(),
+                'tnet': tnet.module.state_dict(),
                 'prec@1': test_top1,
                 'prec@5': test_top5,
             }, is_best, args.save_root)
@@ -239,6 +241,7 @@ def train(train_loader, nets, optimizer, criterions, epoch):
     data_time  = AverageMeter()
     cls_losses = AverageMeter()
     kd_losses  = AverageMeter()
+    act_losses = AverageMeter()
     top1       = AverageMeter()
     top5       = AverageMeter()
 
@@ -264,7 +267,7 @@ def train(train_loader, nets, optimizer, criterions, epoch):
         if args.kd_mode in ['sobolev', 'lwm']:
             img.requires_grad = True
 
-        stem_s, out_s, _ = snet(img)
+        stem_s, out_s, act_out = snet(img)
         stem_t, out_t, _ = tnet(img)
 
         cls_loss = criterionCls(out_s, target)
@@ -273,16 +276,16 @@ def train(train_loader, nets, optimizer, criterions, epoch):
             kd_loss = criterionKD(out_s, out_t.detach()) * args.lambda_kd
 
         elif args.kd_mode in ['at', 'sp']:
-            kd_loss = (criterionKD(rb1_s[1], rb1_t[1].detach()) +
-                       criterionKD(rb2_s[1], rb2_t[1].detach()) +
-                       criterionKD(rb3_s[1], rb3_t[1].detach())) / 3.0 * args.lambda_kd
+            kd_loss = (criterionKD(stem_s, stem_t.detach()) + criterionKD(out_s, out_t.detach())) / 2 * args.lambda_kd
         else:
             raise Exception(f'Invalid kd mode...{args.kd_mode}')
-        loss = cls_loss + kd_loss
+        act_loss = act_out*1e-8
+        loss = cls_loss + kd_loss + act_loss
 
         prec1, prec5 = accuracy(out_s, target, topk=(1,5))
         cls_losses.update(cls_loss.item(), img.size(0))
         kd_losses.update(kd_loss.item(), img.size(0))
+        act_losses.update(act_loss, img.size(0))
         top1.update(prec1.item(), img.size(0))
         top5.update(prec5.item(), img.size(0))
 
@@ -296,9 +299,10 @@ def train(train_loader, nets, optimizer, criterions, epoch):
     log_str = ('Epoch[{0}]: '
                 'Cls:{cls_losses.avg:.4f}  '
                 'KD:{kd_losses.avg:.4f}  '
+                'act+loss:{act_losses.avg:.4f}'
                 'prec@1:{top1.avg:.2f}  '
                 'prec@5:{top5.avg:.2f}'.format(
-                epoch, cls_losses=cls_losses, kd_losses=kd_losses, top1=top1, top5=top5))
+                epoch, cls_losses=cls_losses, kd_losses=kd_losses, act_losses=act_losses, top1=top1, top5=top5))
     logging.info(log_str)
 
 

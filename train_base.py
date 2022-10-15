@@ -14,6 +14,7 @@ import torch.nn.functional as F
 import torch.backends.cudnn as cudnn
 import torchvision.transforms as transforms
 import torchvision.datasets as dst
+from torch.utils.data.distributed import DistributedSampler
 
 from utils import AverageMeter, accuracy, transform_time
 from utils import load_pretrained_model, save_checkpoint
@@ -68,17 +69,30 @@ def main():
         torch.cuda.manual_seed(args.seed)
         cudnn.enabled = True
         cudnn.benchmark = True
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
     logging.info("args = %s", args)
     logging.info("unparsed_args = %s", unparsed)
+
+    if args.cuda > 1:
+        # distubition initialization
+        torch.distributed.init_process_group(backend="nccl")
+        local_rank = torch.distributed.get_rank()
+        print('local rank: {}'.format(local_rank))
+        torch.cuda.set_device(local_rank)
+        device = torch.device("cuda", local_rank)
+    else:
+        local_rank = 0
 
     logging.info('----------- Network Initialization --------------')
     net = define_tsnet(name=args.net_name, num_class=args.num_class, net_type=args.net_type, first_ch=args.first_ch, \
                         cuda=args.cuda, pretrained=args.pretrained)
-    logging.info('%s', net)
-    logging.info("param size = %fMB", count_parameters_in_MB(net))
-    logging.info('-----------------------------------------------')
+    if local_rank == 0:
+        logging.info('%s', net)
+        logging.info("param size = %fMB", count_parameters_in_MB(net))
+        logging.info('-----------------------------------------------')
 
-    if not args.test_only:
+    if not args.test_only and local_rank == 0:
         # save initial parameters
         logging.info('Saving initial parameters......') 
         save_path = os.path.join(args.save_root, 'initial_r{}.pth.tar'.format(args.net_name[6:]))
@@ -156,12 +170,22 @@ def main():
     
 
     # define data loader
-    
-    train_loader    = torch.utils.data.DataLoader(dataset=train_dataset, batch_size=args.batch_size, num_workers=4, shuffle=True, pin_memory=True)
-    test_loader     = torch.utils.data.DataLoader(dataset=test_dataset, batch_size=args.batch_size, num_workers=4, shuffle=False, pin_memory=True)
+    if args.cuda == 1:
+        train_loader    = torch.utils.data.DataLoader(dataset=train_dataset, batch_size=args.batch_size, num_workers=2, shuffle=True)
+        test_loader     = torch.utils.data.DataLoader(dataset=test_dataset, batch_size=args.batch_size, num_workers=2, shuffle=False)
+    else:
+        train_sampler = DistributedSampler(train_dataset)
+        test_sampler = DistributedSampler(test_dataset)
+        # num_workers actually need to be set accroding to the cpu
+        train_loader    = torch.utils.data.DataLoader(dataset=train_dataset, batch_size=args.batch_size, num_workers=2*args.cuda, sampler=train_sampler, pin_memory=True)
+        test_loader     = torch.utils.data.DataLoader(dataset=test_dataset, batch_size=args.batch_size, num_workers=2*args.cuda, sampler=test_sampler, pin_memory=True)
 
     best_top1 = 0
     best_top5 = 0
+    if args.cuda == 1:
+        net = net.cuda()
+    else:
+        net = torch.nn.parallel.DistributedDataParallel(net)
     for epoch in range(1, args.epochs+1):
         adjust_lr(optimizer, epoch)
 
@@ -172,26 +196,28 @@ def main():
 
         # evaluate on testing set
         # logging.info('Testing the models......')
-        test_top1, test_top5 = test(test_loader, net, criterion)
+        if local_rank == 0:
+            test_top1, test_top5 = test(test_loader, net, criterion)
 
-        epoch_duration = time.time() - epoch_start_time
-        logging.info('Epoch time: {}s'.format(int(epoch_duration)))
-        if args.test_only:
-            break
-        # save model
-        is_best = False
-        if test_top1 > best_top1:
-            best_top1 = test_top1
-            best_top5 = test_top5
-            is_best = True
-            logging.info('Saving models, the best accuracy is {} ......'.format(best_top1))
-            save_checkpoint({
-                'epoch': epoch,
-                'net': net.state_dict(),
-                'prec@1': test_top1,
-                'prec@5': test_top5,
-            }, is_best, args.save_root)
-    logging.info('the best accuracy: top1: {}, top5: {}'.format(best_top1, best_top5))
+            epoch_duration = time.time() - epoch_start_time
+            logging.info('Epoch time: {}s'.format(int(epoch_duration)))
+            if args.test_only:
+                break
+            # save model
+            is_best = False
+            if test_top1 > best_top1:
+                best_top1 = test_top1
+                best_top5 = test_top5
+                is_best = True
+                logging.info('Saving models, the best accuracy is {} ......'.format(best_top1))
+                save_checkpoint({
+                    'epoch': epoch,
+                    'net': net.state_dict() if args.cuda == 1 else net.module.state_dict(),
+                    'prec@1': test_top1,
+                    'prec@5': test_top5,
+                }, is_best, args.save_root)
+    if local_rank == 0:
+        logging.info('the best accuracy: top1: {}, top5: {}'.format(best_top1, best_top5))
 
 
 def train(train_loader, net, optimizer, criterion, epoch, hoyer_decay=1e-8):

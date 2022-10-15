@@ -23,15 +23,18 @@ def define_tsnet(name, num_class, net_type='ori', first_ch=64, cuda=True, pretra
         state = state['state_dict']
         missing_keys, unexpected_keys = net.load_state_dict(state, strict=False)
         print('\n Missing keys : {}\n Unexpected Keys: {}'.format(missing_keys, unexpected_keys))  
-
-    if cuda:
-        net = torch.nn.DataParallel(net).cuda()
-    else:
-        net = torch.nn.DataParallel(net)
-    
     if pretrained and 'net' in state:
         missing_keys, unexpected_keys = net.load_state_dict(state['net'], strict=False)
         print('\n Missing keys : {}\n Unexpected Keys: {}\n best accuracy: {}'.format(missing_keys, unexpected_keys, state['prec@1']))  
+
+    # if cuda:
+    #     net = torch.nn.DataParallel(net).cuda()
+    # else:
+    #     net = torch.nn.DataParallel(net)
+    
+    # if pretrained and 'net' in state:
+    #     missing_keys, unexpected_keys = net.load_state_dict(state['net'], strict=False)
+    #     print('\n Missing keys : {}\n Unexpected Keys: {}\n best accuracy: {}'.format(missing_keys, unexpected_keys, state['prec@1']))  
 
     return net
 
