@@ -73,7 +73,7 @@ class BasicBlock(nn.Module):
         return out
 
 class HoyerResNet(nn.Module):
-    def __init__(self, block, num_blocks, num_class=10, net_type='ori', first_ch=64, dataset = 'CIFAR10', loss_type='sum', spike_type = 'sum', start_spike_layer=0, x_thr_scale=1.0):
+    def __init__(self, block, num_blocks, num_class=10, net_type='ori', first_ch=64, loss_type='sum', spike_type = 'sum', start_spike_layer=0, x_thr_scale=1.0):
         
         super(HoyerResNet, self).__init__()
         self.inplanes = first_ch
@@ -81,7 +81,7 @@ class HoyerResNet(nn.Module):
         self.loss_type     = loss_type
         self.x_thr_scale    = x_thr_scale
         self.if_spike       = True if start_spike_layer == 0 else False 
-        if dataset == 'CIFAR10':
+        if num_class == 10:
             self.conv1 = nn.Sequential(
                                 nn.Conv2d(3, self.inplanes, kernel_size=3, stride=1, padding=1, bias=False) if net_type == 'ori' \
                                     else customConv2(in_channels=3, out_channels=self.inplanes, kernel_size=(3 ,3), stride = 1, padding = 1),
@@ -95,7 +95,7 @@ class HoyerResNet(nn.Module):
                                 HoyerBiAct(num_features=self.inplanes, spike_type=self.spike_type, x_thr_scale=self.x_thr_scale, if_spike=self.if_spike),
                                 nn.Conv2d(self.inplanes, self.inplanes, kernel_size=3, stride=1, padding=1, bias=False),
                                 )
-        elif dataset == 'IMAGENET':
+        elif num_class == 1000:
             self.conv1 = nn.Conv2d(3, self.inplanes, kernel_size=7, stride=2, padding=3, bias=False) if net_type == 'ori' \
                 else customConv2(in_channels=3, out_channels=self.inplanes, kernel_size=(7 ,7), stride = 2, padding = 3),
         else:
@@ -196,7 +196,7 @@ class spike_vgg16(nn.Module):
         self.first_ch = first_ch
         self.features = self._make_layers(cfg['VGG16'])
 
-        if num_class == 1000: # if dataset=='IMAGENET':
+        if num_class == 1000: # if data_name=='IMAGENET':
             self.classifier = nn.Sequential(
                         nn.Linear((im_size//32)**2*512, 4096, bias=False),
                         HoyerBiAct(spike_type=fc_spike_type, x_thr_scale=self.x_thr_scale, if_spike=self.if_spike),
@@ -206,7 +206,7 @@ class spike_vgg16(nn.Module):
                         nn.Dropout(linear_dropout),
                         nn.Linear(4096, num_class, bias=False)
             )
-        elif num_class == 10: # elif dataset=='CIFAR10':
+        elif num_class == 10: # elif data_name=='CIFAR10':
             self.classifier = nn.Sequential(
                             nn.Linear(2048, 4096, bias=False),
                             HoyerBiAct(spike_type=fc_spike_type, x_thr_scale=self.x_thr_scale, if_spike=self.if_spike),

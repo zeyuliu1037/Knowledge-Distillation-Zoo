@@ -51,7 +51,7 @@ parser.add_argument('--net_name', type=str, required=True, help='name of basenet
 
 args, unparsed = parser.parse_known_args()
 
-args.save_root = os.path.join(f'result/{args.net_name}', args.note)
+args.save_root = os.path.join(f'results/{args.net_name}', args.note)
 create_exp_dir(args.save_root)
 
 log_format = '%(message)s'
@@ -72,7 +72,8 @@ def main():
     logging.info("unparsed_args = %s", unparsed)
 
     logging.info('----------- Network Initialization --------------')
-    net = define_tsnet(name=args.net_name, num_class=args.num_class, net_type=args.net_type, first_ch=args.first_ch, cuda=args.cuda, pretrained=args.pretrained)
+    net = define_tsnet(name=args.net_name, num_class=args.num_class, net_type=args.net_type, first_ch=args.first_ch, \
+                        cuda=args.cuda, pretrained=args.pretrained)
     logging.info('%s', net)
     logging.info("param size = %fMB", count_parameters_in_MB(net))
     logging.info('-----------------------------------------------')
