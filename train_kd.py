@@ -21,6 +21,7 @@ from utils import load_pretrained_model, save_checkpoint
 from utils import create_exp_dir, count_parameters_in_MB
 from network import define_tsnet
 from kd_losses import *
+from torch.utils.data.distributed import DistributedSampler
 
 parser = argparse.ArgumentParser(description='train kd')
 
@@ -98,12 +99,23 @@ def main():
     logging.info("args = %s", args)
     logging.info("unparsed_args = %s", unparsed)
 
+    if args.cuda > 1:
+        # distubition initialization
+        torch.distributed.init_process_group(backend="nccl")
+        local_rank = torch.distributed.get_rank()
+        print('local rank: {}'.format(local_rank))
+        torch.cuda.set_device(local_rank)
+        device = torch.device("cuda", local_rank)
+    else:
+        local_rank = 0
+
     logging.info('----------- Network Initialization --------------')
     snet = define_tsnet(name=args.s_name, num_class=args.num_class, net_type=args.s_type, first_ch=args.s_ch, cuda=args.cuda)
     checkpoint = torch.load(args.s_init)
     load_pretrained_model(snet, checkpoint['net'])
-    logging.info('Student: %s', snet)
-    logging.info('Student param size = %fMB', count_parameters_in_MB(snet))
+    if local_rank == 0:
+        logging.info('Student: %s', snet)
+        logging.info('Student param size = %fMB', count_parameters_in_MB(snet))
 
     tnet = define_tsnet(name=args.t_name, num_class=args.num_class, net_type=args.t_type, first_ch=args.t_ch, cuda=args.cuda)
     checkpoint = torch.load(args.t_model)
@@ -114,20 +126,26 @@ def main():
     tnet.eval()
     for param in tnet.parameters():
         param.requires_grad = False
-    logging.info('Teacher: %s', tnet)
-    logging.info('Teacher param size = %fMB', count_parameters_in_MB(tnet))
-    logging.info('-----------------------------------------------')
+    if local_rank == 0:
+        logging.info('Teacher: %s', tnet)
+        logging.info('Teacher param size = %fMB', count_parameters_in_MB(tnet))
+        logging.info('-----------------------------------------------')
 
     # define loss functions
     if args.kd_mode == 'logits':
         criterionKD = Logits()
+        criterionKD2 = Logits()
 
     elif args.kd_mode == 'at':
         criterionKD = AT(args.p)
+        criterionKD2 = Logits()
 
     else:
         raise Exception('Invalid kd mode...')
     if args.cuda:
+        snet = snet.cuda()
+        criterionKD = criterionKD.cuda()
+        criterionKD2 = criterionKD2.cuda()
         criterionCls = torch.nn.CrossEntropyLoss().cuda()
     else:
         criterionCls = torch.nn.CrossEntropyLoss()
@@ -190,49 +208,61 @@ def main():
         raise Exception('Invalid dataset name...') 
 
     # define data loader
-    
-    train_loader    = torch.utils.data.DataLoader(dataset=train_dataset, batch_size=args.batch_size, num_workers=2, shuffle=True, pin_memory=True)
-    test_loader     = torch.utils.data.DataLoader(dataset=test_dataset, batch_size=args.batch_size, num_workers=2, shuffle=False, pin_memory=True)
-
-
-    # warp nets and criterions for train and test
-    nets = {'snet':snet, 'tnet':tnet}
-    criterions = {'criterionCls':criterionCls, 'criterionKD':criterionKD}
+    if args.cuda == 1:
+        train_loader    = torch.utils.data.DataLoader(dataset=train_dataset, batch_size=args.batch_size, num_workers=2, shuffle=True)
+        test_loader     = torch.utils.data.DataLoader(dataset=test_dataset, batch_size=args.batch_size, num_workers=2, shuffle=False)
+    else:
+        train_sampler = DistributedSampler(train_dataset)
+        test_sampler = DistributedSampler(test_dataset)
+        # num_workers actually need to be set accroding to the cpu
+        train_loader    = torch.utils.data.DataLoader(dataset=train_dataset, batch_size=args.batch_size, num_workers=2*args.cuda, sampler=train_sampler, pin_memory=True)
+        test_loader     = torch.utils.data.DataLoader(dataset=test_dataset, batch_size=args.batch_size, num_workers=2*args.cuda, sampler=test_sampler, pin_memory=True)
 
     # first initilizing the student nets
 
     best_top1 = 0
     best_top5 = 0
+    if args.cuda > 1:
+        snet = torch.nn.parallel.DistributedDataParallel(snet)
+        tnet = torch.nn.parallel.DistributedDataParallel(tnet)
+    else:
+        snet = torch.nn.DataParallel(snet).cuda()
+        tnet = torch.nn.DataParallel(tnet).cuda()
+    # warp nets and criterions for train and test
+    nets = {'snet':snet, 'tnet':tnet}
+    criterions = {'criterionCls':criterionCls, 'criterionKD':criterionKD, 'criterionKD2':criterionKD2}
+
     for epoch in range(1, args.epochs+1):
         adjust_lr(optimizer, epoch)
 
         # train one epoch
         epoch_start_time = time.time()
-        train(train_loader, nets, optimizer, criterions, epoch)
+        log_str = train(train_loader, nets, optimizer, criterions, epoch)
 
         # evaluate on testing set
         # logging.info('Testing the models......')
-        test_top1, test_top5 = test(test_loader, nets, criterions, epoch)
+        if local_rank == 0:
+            logging.info(log_str)
+            test_top1, test_top5 = test(test_loader, nets, criterions, epoch)
 
-        epoch_duration = time.time() - epoch_start_time
-        
-
-        # save model
-        is_best = False
-        if test_top1 > best_top1:
-            best_top1 = test_top1
-            best_top5 = test_top5
-            is_best = True
-            logging.info('Saving models......')
-            save_checkpoint({
-                'epoch': epoch,
-                'snet': snet.module.state_dict(),
-                'tnet': tnet.module.state_dict(),
-                'prec@1': test_top1,
-                'prec@5': test_top5,
-            }, is_best, args.save_root)
-
-        logging.info('Epoch time: {}s, best accuracy is: {}'.format(int(epoch_duration), best_top1))
+            epoch_duration = time.time() - epoch_start_time
+            logging.info('Epoch time: {}s'.format(int(epoch_duration)))
+            # save model
+            is_best = False
+            if test_top1 > best_top1:
+                best_top1 = test_top1
+                best_top5 = test_top5
+                is_best = True
+                logging.info('Saving models......')
+                save_checkpoint({
+                    'epoch': epoch,
+                    'snet': snet.module.state_dict(),
+                    'tnet': tnet.module.state_dict(),
+                    'prec@1': test_top1,
+                    'prec@5': test_top5,
+                }, is_best, args.save_root)
+    if local_rank == 0:        
+        logging.info('the best accuracy: top1: {}, top5: {}, saving in: {}'.format(best_top1, best_top5, args.save_root))
 
 
 
@@ -241,6 +271,8 @@ def train(train_loader, nets, optimizer, criterions, epoch):
     data_time  = AverageMeter()
     cls_losses = AverageMeter()
     kd_losses  = AverageMeter()
+    kd1_losses  = AverageMeter()
+    kd2_losses  = AverageMeter()
     act_losses = AverageMeter()
     top1       = AverageMeter()
     top5       = AverageMeter()
@@ -250,6 +282,7 @@ def train(train_loader, nets, optimizer, criterions, epoch):
 
     criterionCls = criterions['criterionCls']
     criterionKD  = criterions['criterionKD']
+    criterionKD2  = criterions['criterionKD2']
 
     snet.train()
     if args.kd_mode in ['vid', 'ofd']:
@@ -276,7 +309,9 @@ def train(train_loader, nets, optimizer, criterions, epoch):
             kd_loss = criterionKD(out_s, out_t.detach()) * args.lambda_kd
 
         elif args.kd_mode in ['at', 'sp']:
-            kd_loss = (criterionKD(stem_s, stem_t.detach()) + criterionKD(out_s, out_t.detach())) / 2 * args.lambda_kd
+            kd_loss1 = criterionKD(stem_s, stem_t.detach()) * args.lambda_kd
+            kd_loss2 = criterionKD2(out_s, out_t.detach()) * 0.1
+            kd_loss = (kd_loss1 + kd_loss2) / 2.0
         else:
             raise Exception(f'Invalid kd mode...{args.kd_mode}')
         act_loss = act_out*1e-8
@@ -285,6 +320,9 @@ def train(train_loader, nets, optimizer, criterions, epoch):
         prec1, prec5 = accuracy(out_s, target, topk=(1,5))
         cls_losses.update(cls_loss.item(), img.size(0))
         kd_losses.update(kd_loss.item(), img.size(0))
+        if args.kd_mode == 'at':
+            kd1_losses.update(kd_loss1.item(), img.size(0))
+            kd2_losses.update(kd_loss2.item(), img.size(0))
         act_losses.update(act_loss, img.size(0))
         top1.update(prec1.item(), img.size(0))
         top5.update(prec5.item(), img.size(0))
@@ -303,7 +341,17 @@ def train(train_loader, nets, optimizer, criterions, epoch):
                 'prec@1:{top1.avg:.2f}  '
                 'prec@5:{top5.avg:.2f}'.format(
                 epoch, cls_losses=cls_losses, kd_losses=kd_losses, act_losses=act_losses, top1=top1, top5=top5))
-    logging.info(log_str)
+    if args.kd_mode == 'at':
+        log_str = ('Epoch[{0}]: '
+                'Cls:{cls_losses.avg:.4f}  '
+                'KD1:{kd1_losses.avg:.4f}  '
+                'KD2:{kd2_losses.avg:.4f}  '
+                'KD:{kd_losses.avg:.4f}  '
+                'act_loss:{act_losses.avg:.4f}'
+                'prec@1:{top1.avg:.2f}  '
+                'prec@5:{top5.avg:.2f}'.format(
+                epoch, cls_losses=cls_losses, kd1_losses=kd1_losses, kd2_losses=kd2_losses, kd_losses=kd_losses, act_losses=act_losses, top1=top1, top5=top5))
+    return log_str
 
 
 def test(test_loader, nets, criterions, epoch):
@@ -317,6 +365,7 @@ def test(test_loader, nets, criterions, epoch):
 
     criterionCls = criterions['criterionCls']
     criterionKD  = criterions['criterionKD']
+    criterionKD2  = criterions['criterionKD2']
 
     snet.eval()
     if args.kd_mode in ['vid', 'ofd']:
@@ -337,9 +386,9 @@ def test(test_loader, nets, criterions, epoch):
         if args.kd_mode in ['logits', 'st']:
             kd_loss  = criterionKD(out_s, out_t.detach()) * args.lambda_kd
         elif args.kd_mode in ['at', 'sp']:
-            kd_loss = (criterionKD(rb1_s[1], rb1_t[1].detach()) +
-                       criterionKD(rb2_s[1], rb2_t[1].detach()) +
-                       criterionKD(rb3_s[1], rb3_t[1].detach())) / 3.0 * args.lambda_kd
+            kd_loss1 = criterionKD(stem_s, stem_t.detach()) * args.lambda_kd
+            kd_loss2 = criterionKD2(out_s, out_t.detach()) * 0.1
+            kd_loss = (kd_loss1 + kd_loss2) / 2.0
         else:
             raise Exception('Invalid kd mode...')
 
@@ -368,10 +417,16 @@ def adjust_lr_init(optimizer, epoch):
 
 
 def adjust_lr(optimizer, epoch):
-    scale   = 0.1
-    lr_list =  [args.lr] * 100
-    lr_list += [args.lr*scale] * 50
-    lr_list += [args.lr*scale*scale] * 50
+    # scale   = 0.1
+    # lr_list =  [args.lr] * 100
+    # lr_list += [args.lr*scale] * 50
+    # lr_list += [args.lr*scale*scale] * 50
+    lr_interval = [360, 120, 60, 60] if args.epochs == 600 else [60, 30, 15, 15]
+    scale   = 0.2
+    lr_list =  [args.lr] * lr_interval[0]
+    lr_list += [args.lr*scale] * lr_interval[1]
+    lr_list += [args.lr*scale*scale] * lr_interval[2]
+    lr_list += [args.lr*scale*scale*scale] * lr_interval[3]
 
     lr = lr_list[epoch-1]
     logging.info('Epoch: {}  lr: {:.1e}'.format(epoch, lr))

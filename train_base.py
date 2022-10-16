@@ -104,6 +104,13 @@ def main():
         }, save_path)
         
 
+    # define loss functions
+    if args.cuda:
+        net = net.cuda()
+        criterion = torch.nn.CrossEntropyLoss().cuda()
+    else:
+        criterion = torch.nn.CrossEntropyLoss()
+    
     # initialize optimizer
     if args.optimizer == 'SGD':
         optimizer = torch.optim.SGD(net.parameters(),
@@ -117,12 +124,6 @@ def main():
                                 amsgrad = True, 
                                 weight_decay = args.weight_decay,
                                 )
-
-    # define loss functions
-    if args.cuda:
-        criterion = torch.nn.CrossEntropyLoss().cuda()
-    else:
-        criterion = torch.nn.CrossEntropyLoss()
 
     # define transforms
     if args.data_name == 'cifar10':
@@ -185,6 +186,7 @@ def main():
     if args.cuda == 1:
         net = net.cuda()
     else:
+        net = net.cuda()
         net = torch.nn.parallel.DistributedDataParallel(net)
     for epoch in range(1, args.epochs+1):
         adjust_lr(optimizer, epoch)
@@ -192,13 +194,13 @@ def main():
         # train one epoch
         epoch_start_time = time.time()
         if not args.test_only:
-            train(train_loader, net, optimizer, criterion, epoch)
+            log_str = train(train_loader, net, optimizer, criterion, epoch)
 
         # evaluate on testing set
         # logging.info('Testing the models......')
         if local_rank == 0:
+            logging.info(log_str)
             test_top1, test_top5 = test(test_loader, net, criterion)
-
             epoch_duration = time.time() - epoch_start_time
             logging.info('Epoch time: {}s'.format(int(epoch_duration)))
             if args.test_only:
@@ -217,7 +219,8 @@ def main():
                     'prec@5': test_top5,
                 }, is_best, args.save_root)
     if local_rank == 0:
-        logging.info('the best accuracy: top1: {}, top5: {}'.format(best_top1, best_top5))
+        logging.info('the best accuracy: top1: {}, top5: {}, saving in: {}'.format(best_top1, best_top5, args.save_root))
+        
 
 
 def train(train_loader, net, optimizer, criterion, epoch, hoyer_decay=1e-8):
@@ -261,7 +264,7 @@ def train(train_loader, net, optimizer, criterion, epoch, hoyer_decay=1e-8):
                 'prec@1:{top1.avg:.2f}  '
                 'prec@5:{top5.avg:.2f} '.format(
                 epoch, losses=losses, act_losses=act_losses, total_losses=total_losses, top1=top1, top5=top5))
-    logging.info(log_str)
+    return log_str
 
 
 def test(test_loader, net, criterion):
@@ -296,7 +299,7 @@ def test(test_loader, net, criterion):
 def adjust_lr(optimizer, epoch):
     #  [360, 480, 540]
     # lr_interval = [60, 30, 15, 15]
-    lr_interval = [360, 120, 60, 60]
+    lr_interval = [360, 120, 60, 60] if args.epochs == 600 else [60, 30, 15, 15]
     scale   = 0.2
     lr_list =  [args.lr] * lr_interval[0]
     lr_list += [args.lr*scale] * lr_interval[1]

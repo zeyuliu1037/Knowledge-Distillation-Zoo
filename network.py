@@ -27,10 +27,10 @@ def define_tsnet(name, num_class, net_type='ori', first_ch=64, cuda=True, pretra
         missing_keys, unexpected_keys = net.load_state_dict(state['net'], strict=False)
         print('\n Missing keys : {}\n Unexpected Keys: {}\n best accuracy: {}'.format(missing_keys, unexpected_keys, state['prec@1']))  
 
-    # if cuda:
-    #     net = torch.nn.DataParallel(net).cuda()
-    # else:
-    #     net = torch.nn.DataParallel(net)
+    if cuda:
+        net = torch.nn.DataParallel(net).cuda()
+    else:
+        net = torch.nn.DataParallel(net)
     
     # if pretrained and 'net' in state:
     #     missing_keys, unexpected_keys = net.load_state_dict(state['net'], strict=False)
@@ -76,7 +76,7 @@ class BasicBlock(nn.Module):
         return out
 
 class HoyerResNet(nn.Module):
-    def __init__(self, block, num_blocks, num_class=10, net_type='ori', first_ch=64, loss_type='sum', spike_type = 'sum', start_spike_layer=0, x_thr_scale=1.0):
+    def __init__(self, block, num_blocks, num_class=10, net_type='ori', first_ch=64, loss_type='sum', spike_type = 'cw', start_spike_layer=0, x_thr_scale=1.0):
         
         super(HoyerResNet, self).__init__()
         self.inplanes = first_ch
@@ -100,7 +100,7 @@ class HoyerResNet(nn.Module):
                                 )
         elif num_class == 1000:
             self.conv1 = nn.Conv2d(3, self.inplanes, kernel_size=7, stride=2, padding=3, bias=False) if net_type == 'ori' \
-                else customConv2(in_channels=3, out_channels=self.inplanes, kernel_size=(7 ,7), stride = 2, padding = 3),
+                else customConv2(in_channels=3, out_channels=self.inplanes, kernel_size=(7 ,7), stride = 2, padding = 3)
         else:
             raise RuntimeError('only for ciafar10 and imagenet now')
         self.bn1 = nn.BatchNorm2d(self.inplanes)

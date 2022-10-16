@@ -138,3 +138,4 @@ model_t
 cifar_data
 imgnet_train.sh
 imgnet_test.sh
+ckpts/
