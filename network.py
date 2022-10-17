@@ -8,7 +8,8 @@ import torch.nn.functional as F
 
 
 
-def define_tsnet(name, num_class, net_type='ori', first_ch=64, cuda=True, pretrained=None):
+def define_tsnet(name, num_class, net_type='ori', first_ch=64, cuda=True, pretrained=None, resume=None):
+    start_epoch = 1
     if name == 'resnet20':
         net = resnet20(num_class=num_class, net_type=net_type, first_ch=first_ch)
     elif name == 'resnet18':
@@ -24,19 +25,20 @@ def define_tsnet(name, num_class, net_type='ori', first_ch=64, cuda=True, pretra
         missing_keys, unexpected_keys = net.load_state_dict(state, strict=False)
         print('\n Missing keys : {}\n Unexpected Keys: {}'.format(missing_keys, unexpected_keys))  
     if pretrained and 'net' in state:
+        start_epoch = state['epoch'] if resume else 1
         missing_keys, unexpected_keys = net.load_state_dict(state['net'], strict=False)
         print('\n Missing keys : {}\n Unexpected Keys: {}\n best accuracy: {}'.format(missing_keys, unexpected_keys, state['prec@1']))  
 
-    if cuda:
-        net = torch.nn.DataParallel(net).cuda()
-    else:
-        net = torch.nn.DataParallel(net)
+    # if cuda:
+    #     net = torch.nn.DataParallel(net).cuda()
+    # else:
+    #     net = torch.nn.DataParallel(net)
     
     # if pretrained and 'net' in state:
     #     missing_keys, unexpected_keys = net.load_state_dict(state['net'], strict=False)
     #     print('\n Missing keys : {}\n Unexpected Keys: {}\n best accuracy: {}'.format(missing_keys, unexpected_keys, state['prec@1']))  
 
-    return net
+    return net, start_epoch
 
 def conv3x3(inplanes, out_planes, stride=1):
     """3x3 convolution with padding"""

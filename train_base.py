@@ -43,6 +43,7 @@ parser.add_argument('--first_ch', type=int, default=64)
 parser.add_argument('--seed', type=int, default=2, help='random seed')
 parser.add_argument('--note', type=str, default='try', help='note for this run')
 parser.add_argument('--test_only', action='store_true', help='perform only inference')
+parser.add_argument('--resume', action='store_true', help='perform only inference')
 parser.add_argument('--pretrained', default='', type=str, help='pretrained model to initialize ANN')
 
 # net and dataset choosen
@@ -85,8 +86,8 @@ def main():
         local_rank = 0
 
     logging.info('----------- Network Initialization --------------')
-    net = define_tsnet(name=args.net_name, num_class=args.num_class, net_type=args.net_type, first_ch=args.first_ch, \
-                        cuda=args.cuda, pretrained=args.pretrained)
+    net, start_epoch = define_tsnet(name=args.net_name, num_class=args.num_class, net_type=args.net_type, first_ch=args.first_ch, \
+                        cuda=args.cuda, pretrained=args.pretrained, resume=args.resume)
     if local_rank == 0:
         logging.info('%s', net)
         logging.info("param size = %fMB", count_parameters_in_MB(net))
@@ -188,7 +189,7 @@ def main():
     else:
         net = net.cuda()
         net = torch.nn.parallel.DistributedDataParallel(net)
-    for epoch in range(1, args.epochs+1):
+    for epoch in range(start_epoch, args.epochs+1):
         adjust_lr(optimizer, epoch)
 
         # train one epoch
@@ -241,7 +242,7 @@ def train(train_loader, net, optimizer, criterion, epoch, hoyer_decay=1e-8):
         # _, _, _, _, _, out = net(img)
         _, out, act_out = net(img)
         loss = criterion(out, target)
-        act_loss = (hoyer_decay*act_out).mean()
+        act_loss = hoyer_decay*act_out
         # print('loss: {}, act_loss: {}'.format(loss, act_loss))
         total_loss = loss + act_loss 
         # print('out: {}, target: {}'.format(out.shape, target.shape))

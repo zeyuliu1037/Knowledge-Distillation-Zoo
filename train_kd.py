@@ -314,7 +314,7 @@ def train(train_loader, nets, optimizer, criterions, epoch):
             kd_loss = (kd_loss1 + kd_loss2) / 2.0
         else:
             raise Exception(f'Invalid kd mode...{args.kd_mode}')
-        act_loss = act_out*1e-8
+        act_loss = act_out*0
         loss = cls_loss + kd_loss + act_loss
 
         prec1, prec5 = accuracy(out_s, target, topk=(1,5))

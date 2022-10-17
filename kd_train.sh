@@ -34,4 +34,4 @@ CUDA_VISIBLE_DEVICES=1 python -u train_kd.py \
                            --kd_mode at \
                            --lambda_kd 1000.0 \
                            --p 2.0 \
-                           --note 'at-c10-vgg16-ch64-with-act-loss'
+                           --note 'at-c10-vgg16-ch64-without-act-loss'
