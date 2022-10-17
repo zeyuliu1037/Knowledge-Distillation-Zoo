@@ -421,7 +421,7 @@ def adjust_lr(optimizer, epoch):
     # lr_list =  [args.lr] * 100
     # lr_list += [args.lr*scale] * 50
     # lr_list += [args.lr*scale*scale] * 50
-    lr_interval = [360, 120, 60, 60] if args.epochs == 600 else [60, 30, 15, 15]
+    lr_interval = [360, 120, 60, 60] if args.epochs == 600 else [30, 15, 8, 7]
     scale   = 0.2
     lr_list =  [args.lr] * lr_interval[0]
     lr_list += [args.lr*scale] * lr_interval[1]
