@@ -146,8 +146,10 @@ def main():
         train_dataset   = dst.CIFAR10(root='./cifar_data', train=True, download=True, transform=train_transform)
         test_dataset    = dst.CIFAR10(root='./cifar_data', train=False, download=True, transform=test_transform)
     elif args.data_name == 'imagenet':
-        traindir    = os.path.join('/home/ubuntu/imagenet', 'train')
-        valdir      = os.path.join('/home/ubuntu/imagenet', 'val')
+        # traindir    = os.path.join('/home/ubuntu/imagenet', 'train')
+        # valdir      = os.path.join('/home/ubuntu/imagenet', 'val')
+        traindir    = os.path.join('/root/autodl-tmp/imagenet', 'train')
+        valdir      = os.path.join('/root/autodl-tmp/imagenet', 'val')
         normalize   = transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225))
         train_dataset    = dst.ImageFolder(
                                 traindir,

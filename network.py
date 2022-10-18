@@ -72,7 +72,7 @@ class BasicBlock(nn.Module):
 
         if self.downsample is not None:
             residual = self.downsample(x)
-
+        # print(out.shape, residual.shape)
         out += residual
 
         return out
@@ -94,18 +94,19 @@ class HoyerResNet(nn.Module):
                                 nn.BatchNorm2d(self.inplanes),
                                 HoyerBiAct(num_features=self.inplanes, spike_type=self.spike_type, x_thr_scale=self.x_thr_scale, if_spike=self.if_spike),
 
-                                nn.Conv2d(self.inplanes, self.inplanes, kernel_size=3, stride=1, padding=1, bias=False),
-                                nn.BatchNorm2d(self.inplanes),
+                                nn.Conv2d(self.inplanes, 64, kernel_size=3, stride=1, padding=1, bias=False),
+                                nn.BatchNorm2d(64),
 
-                                HoyerBiAct(num_features=self.inplanes, spike_type=self.spike_type, x_thr_scale=self.x_thr_scale, if_spike=self.if_spike),
-                                nn.Conv2d(self.inplanes, self.inplanes, kernel_size=3, stride=1, padding=1, bias=False),
+                                HoyerBiAct(64, spike_type=self.spike_type, x_thr_scale=self.x_thr_scale, if_spike=self.if_spike),
+                                nn.Conv2d(64, 64, kernel_size=3, stride=1, padding=1, bias=False),
                                 )
         elif num_class == 1000:
             self.conv1 = nn.Conv2d(3, self.inplanes, kernel_size=7, stride=2, padding=3, bias=False) if net_type == 'ori' \
                 else customConv2(in_channels=3, out_channels=self.inplanes, kernel_size=(7 ,7), stride = 2, padding = 3)
         else:
             raise RuntimeError('only for ciafar10 and imagenet now')
-        self.bn1 = nn.BatchNorm2d(self.inplanes)
+        self.bn1 = nn.BatchNorm2d(64)
+        self.inplanes = 64
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
         self.layer1 = self._make_layer(block, 64, num_blocks[0])
         self.layer2 = self._make_layer(block, 128, num_blocks[1], stride=2)
