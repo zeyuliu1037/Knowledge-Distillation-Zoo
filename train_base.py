@@ -299,8 +299,12 @@ def test(test_loader, net, criterion):
 
 def adjust_lr(optimizer, epoch):
     #  [360, 480, 540]
-    # lr_interval = [60, 30, 15, 15]
-    lr_interval = [360, 120, 60, 60] if args.epochs == 600 else [60, 30, 15, 15]
+    if args.epochs == 600:
+        lr_interval = [360, 120, 60, 60]
+    elif args.epochs == 120:
+        lr_interval = [60, 30, 15, 15]
+    elif args.epochs == 30:
+        lr_interval = [15, 7, 3, 3]
     scale   = 0.2
     lr_list =  [args.lr] * lr_interval[0]
     lr_list += [args.lr*scale] * lr_interval[1]

@@ -141,7 +141,7 @@ class HoyerBiAct(nn.Module):
         # input = torch.clamp(input, min=0.0, max=1.0)
         if self.training:
             clamped_input = torch.clamp((input).clone().detach(), min=0.0, max=1.0)
-            clamped_input[clamped_input >= 1.0] = 0.0
+            # clamped_input[clamped_input >= 1.0] = 0.0
             # clamped_input = input.clone().detach()
             if self.spike_type == 'sum':
                 hoyer_thr = torch.sum((clamped_input)**2) / torch.sum(torch.abs(clamped_input))

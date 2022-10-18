@@ -110,14 +110,14 @@ def main():
         local_rank = 0
 
     logging.info('----------- Network Initialization --------------')
-    snet = define_tsnet(name=args.s_name, num_class=args.num_class, net_type=args.s_type, first_ch=args.s_ch, cuda=args.cuda)
+    snet, _ = define_tsnet(name=args.s_name, num_class=args.num_class, net_type=args.s_type, first_ch=args.s_ch, cuda=args.cuda)
     checkpoint = torch.load(args.s_init)
     load_pretrained_model(snet, checkpoint['net'])
     if local_rank == 0:
         logging.info('Student: %s', snet)
         logging.info('Student param size = %fMB', count_parameters_in_MB(snet))
 
-    tnet = define_tsnet(name=args.t_name, num_class=args.num_class, net_type=args.t_type, first_ch=args.t_ch, cuda=args.cuda)
+    tnet, _ = define_tsnet(name=args.t_name, num_class=args.num_class, net_type=args.t_type, first_ch=args.t_ch, cuda=args.cuda)
     checkpoint = torch.load(args.t_model)
     if 'net' in checkpoint:
         load_pretrained_model(tnet, checkpoint['net'])
@@ -143,7 +143,6 @@ def main():
     else:
         raise Exception('Invalid kd mode...')
     if args.cuda:
-        snet = snet.cuda()
         criterionKD = criterionKD.cuda()
         criterionKD2 = criterionKD2.cuda()
         criterionCls = torch.nn.CrossEntropyLoss().cuda()
@@ -223,8 +222,9 @@ def main():
     best_top1 = 0
     best_top5 = 0
     if args.cuda > 1:
+        snet = snet.cuda()
+        tnet = tnet.cuda()
         snet = torch.nn.parallel.DistributedDataParallel(snet)
-        tnet = torch.nn.parallel.DistributedDataParallel(tnet)
     else:
         snet = torch.nn.DataParallel(snet).cuda()
         tnet = torch.nn.DataParallel(tnet).cuda()
@@ -257,7 +257,7 @@ def main():
                 save_checkpoint({
                     'epoch': epoch,
                     'snet': snet.module.state_dict(),
-                    'tnet': tnet.module.state_dict(),
+                    'tnet': tnet.state_dict(),
                     'prec@1': test_top1,
                     'prec@5': test_top5,
                 }, is_best, args.save_root)
