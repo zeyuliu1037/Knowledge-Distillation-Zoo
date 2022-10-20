@@ -77,8 +77,8 @@ parser.add_argument('--att_f', type=float, default=1.0, help='attention factor o
 
 args, unparsed = parser.parse_known_args()
 
-# args.save_root = os.path.join(f'results/kd/{args.s_name}', args.note)
-args.save_root = os.path.join(f'/root/autodl-tmp/results/kd_{args.s_name}', args.note)
+args.save_root = os.path.join(f'results/kd/{args.s_name}', args.note)
+# args.save_root = os.path.join(f'/root/autodl-tmp/results/kd_{args.s_name}', args.note)
 create_exp_dir(args.save_root)
 
 log_format = '%(message)s'
@@ -254,7 +254,7 @@ def main():
                 best_top1 = test_top1
                 best_top5 = test_top5
                 is_best = True
-                logging.info('Saving models......')
+                logging.info('Saving models, the best accuracy is {} ......'.format(best_top1))
                 save_checkpoint({
                     'epoch': epoch,
                     'snet': snet.module.state_dict(),

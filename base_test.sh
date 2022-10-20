@@ -1,4 +1,4 @@
-CUDA_VISIBLE_DEVICES=1 python -u train_base.py \
+CUDA_VISIBLE_DEVICES=0 python -u train_base.py \
                            --save_root "./vgg16/base/" \
                            --data_name cifar10 \
                            --epochs 1 \
@@ -9,6 +9,6 @@ CUDA_VISIBLE_DEVICES=1 python -u train_base.py \
                            --net_name vgg16 \
                            --test_only \
                            --net_type 'cus' \
-                           --first_ch 16 \
-                           --pretrained 'vgg16/base/base-c10-vgg16_cus16_1014/model_best.pth.tar' \
-                           --note base-c10-vgg16_ori
+                           --first_ch 64 \
+                           --pretrained 'results/kd/vgg16/at-c10-vgg16-ch64-with-act-loss/model_best_9207.pth.tar' \
+                           --note just-test_only

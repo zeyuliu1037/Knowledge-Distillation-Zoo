@@ -26,16 +26,25 @@ def define_tsnet(name, num_class, net_type='ori', first_ch=64, flag='t', kd_ch=(
             net = spike_vgg16_s(num_class=num_class, net_type=net_type, first_ch=first_ch)
         else:
             raise Exception('model name does not exist.')
-
+    # if cuda:
+    #     net = torch.nn.DataParallel(net).cuda()
+    # else:
+    #     net = torch.nn.DataParallel(net)
     state = torch.load(pretrained, map_location='cpu') if pretrained else None
-    if pretrained and 'state_dict' in state:
+    if not pretrained:
+        return net, start_epoch
+    if 'state_dict' in state:
         state = state['state_dict']
         missing_keys, unexpected_keys = net.load_state_dict(state, strict=False)
         print('\n Missing keys : {}\n Unexpected Keys: {}'.format(missing_keys, unexpected_keys))  
-    if pretrained and 'net' in state:
+    elif pretrained and 'net' in state:
         start_epoch = state['epoch'] if resume else 1
         missing_keys, unexpected_keys = net.load_state_dict(state['net'], strict=False)
         print('\n Missing keys : {}\n Unexpected Keys: {}\n best accuracy: {}'.format(missing_keys, unexpected_keys, state['prec@1']))  
+    elif pretrained and 'snet' in state:
+        start_epoch = state['epoch'] if resume else 1
+        missing_keys, unexpected_keys = net.load_state_dict(state['snet'], strict=False)
+        print('\n Missing keys : {}\n Unexpected Keys: {}\n best accuracy: {}'.format(missing_keys, unexpected_keys, state['prec@1']))
 
     # if cuda:
     #     net = torch.nn.DataParallel(net).cuda()
@@ -362,6 +371,121 @@ class spike_vgg16(nn.Module):
                 first_layer = False
                 stem_out = out.clone()
 
+            if isinstance(l, HoyerBiAct):
+                act_loss += self.hoyer_loss(out.clone())
+                
+            # out = l(out)
+        
+        out = out.view(out.size(0), -1)
+        
+        for i,l in enumerate(self.classifier):
+            out = l(out)
+            if isinstance(l, HoyerBiAct):
+                act_loss += self.hoyer_loss(out.clone())
+            # out = l(out)
+ 
+        return stem_out, out, act_loss
+
+    def _make_layers(self, cfg):
+        layers = []
+        in_channels = 3
+        if self.num_class == 1000:
+            cfg.append('M')
+        for i,x in enumerate(cfg):
+            
+            if x == 'M':
+                continue
+            if i == 0 and self.net_type=='cus':
+                x = self.first_ch
+                conv = customConv2(in_channels=3, out_channels=x, kernel_size=(3 ,3), stride = 1, padding = 1)
+                # conv = customConv2(in_channels=3, out_channels=16, kernel_size=(7, 7), stride = 6, padding = 1)
+            else:
+                conv = nn.Conv2d(in_channels, x, kernel_size=3, padding=1, stride=1, bias=False)
+
+            if i+1 < len(cfg) and cfg[i+1] == 'M':
+                layers += [
+                        conv,
+                        nn.MaxPool2d(kernel_size=2, stride=2),
+                        nn.BatchNorm2d(x),
+                        HoyerBiAct(num_features=x, spike_type=self.spike_type, x_thr_scale=self.x_thr_scale, if_spike=self.if_spike),
+                        nn.Dropout(self.conv_dropout)]
+                # layers += [
+                #         conv,
+                #         nn.BatchNorm2d(x),
+                #         HoyerBiAct(num_features=x, spike_type=self.spike_type, x_thr_scale=self.x_thr_scale, if_spike=self.if_spike),
+                #         nn.Dropout(self.conv_dropout),
+                #         nn.MaxPool2d(kernel_size=2, stride=2)]
+            else:
+                layers += [
+                        conv,
+                        nn.BatchNorm2d(x),
+                        HoyerBiAct(num_features=x, spike_type=self.spike_type, x_thr_scale=self.x_thr_scale, if_spike=self.if_spike),
+                        nn.Dropout(self.conv_dropout)]
+            in_channels = x
+        return nn.Sequential(*layers)
+
+class spike_vgg16_s(nn.Module):
+    def __init__(self, num_class=10, net_type='ori', first_ch=64, kd_ch=(16, 64), linear_dropout=0.1, conv_dropout=0.1, loss_type='sum', im_size=224, spike_type='cw'):
+        super(spike_vgg16_s, self).__init__()
+        self.if_spike = True
+        self.conv_dropout = conv_dropout
+        self.num_class = num_class
+        self.loss_type = loss_type
+        fc_spike_type = 'fixed' if spike_type == 'fixed' else 'sum'
+        self.x_thr_scale = 1.0
+        self.spike_type = spike_type
+        self.net_type = net_type
+        self.first_ch = first_ch
+        self.features = self._make_layers(cfg['VGG16'])
+
+        self.kd_conv = nn.Conv2d(kd_ch[0], kd_ch[1], kernel_size=1, stride=1, bias=False)
+        if num_class == 1000: # if data_name=='IMAGENET':
+            self.classifier = nn.Sequential(
+                        nn.Linear((im_size//32)**2*512, 4096, bias=False),
+                        HoyerBiAct(spike_type=fc_spike_type, x_thr_scale=self.x_thr_scale, if_spike=self.if_spike),
+                        nn.Dropout(linear_dropout),
+                        nn.Linear(4096, 4096, bias=False),
+                        HoyerBiAct(spike_type=fc_spike_type, x_thr_scale=self.x_thr_scale, if_spike=self.if_spike),
+                        nn.Dropout(linear_dropout),
+                        nn.Linear(4096, num_class, bias=False)
+            )
+        elif num_class == 10: # elif data_name=='CIFAR10':
+            self.classifier = nn.Sequential(
+                            nn.Linear(2048, 4096, bias=False),
+                            HoyerBiAct(spike_type=fc_spike_type, x_thr_scale=self.x_thr_scale, if_spike=self.if_spike),
+                            nn.Dropout(linear_dropout),
+                            nn.Linear(4096, 4096, bias=False),
+                            HoyerBiAct(spike_type=fc_spike_type, x_thr_scale=self.x_thr_scale, if_spike=self.if_spike),
+                            nn.Dropout(linear_dropout),
+                            nn.Linear(4096, num_class, bias=False))
+        # self._initialize_weights2()
+                            
+    def hoyer_loss(self, x):
+        # return torch.sum(x)
+        x[x<0.0] = 0
+        # x[x>thr] = 0
+        if torch.sum(torch.abs(x))>0: #  and l < self.start_spike_layer
+            # return  (torch.sum(torch.abs(x))**2 / torch.sum((x)**2))
+            if self.loss_type == 'mean':
+                return torch.mean(torch.sum(torch.abs(x), dim=(1,2,3))**2 / torch.sum((x)**2, dim=(1,2,3)))
+            elif self.loss_type == 'sum':
+                return  (torch.sum(torch.abs(x))**2 / torch.sum((x)**2))
+            elif self.loss_type == 'cw':
+                hoyer_thr = torch.sum((x)**2, dim=(0,2,3)) / torch.sum(torch.abs(x), dim=(0,2,3))
+                # 1.0 is the max thr
+                hoyer_thr = torch.nan_to_num(hoyer_thr, nan=1.0)
+                return torch.mean(hoyer_thr)
+        return 0.0
+    def forward(self, x):
+        act_loss = 0.0
+        first_layer = True
+        out = x
+        for l in self.features:
+            out = l(out)
+            if first_layer and isinstance(l, nn.BatchNorm2d):
+                first_layer = False
+                stem_out = self.kd_conv(F.relu((out.clone()))
+)
             if isinstance(l, HoyerBiAct):
                 act_loss += self.hoyer_loss(out.clone())
                 

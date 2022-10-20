@@ -53,8 +53,8 @@ parser.add_argument('--net_name', type=str, required=True, help='name of basenet
 
 args, unparsed = parser.parse_known_args()
 
-# args.save_root = os.path.join(f'results/{args.net_name}', args.note)
-args.save_root = os.path.join(f'/root/autodl-tmp/results/{args.net_name}', args.note)
+args.save_root = os.path.join(f'results/{args.net_name}', args.note)
+# args.save_root = os.path.join(f'/root/autodl-tmp/results/{args.net_name}', args.note)
 create_exp_dir(args.save_root)
 
 log_format = '%(message)s'
@@ -193,20 +193,19 @@ def main():
         net = net.cuda()
         net = torch.nn.parallel.DistributedDataParallel(net)
     for epoch in range(start_epoch, args.epochs+1):
-        adjust_lr(optimizer, epoch)
-
         # train one epoch
         epoch_start_time = time.time()
         if not args.test_only:
+            adjust_lr(optimizer, epoch)
             log_str = train(train_loader, net, optimizer, criterion, epoch)
+            if local_rank == 0:
+                logging.info(log_str)
+                logging.info('Epoch time: %ds', time.time() - epoch_start_time)
 
         # evaluate on testing set
         # logging.info('Testing the models......')
         if local_rank == 0:
-            logging.info(log_str)
             test_top1, test_top5 = test(test_loader, net, criterion)
-            epoch_duration = time.time() - epoch_start_time
-            logging.info('Epoch time: {}s'.format(int(epoch_duration)))
             if args.test_only:
                 break
             # save model
@@ -218,7 +217,7 @@ def main():
                 logging.info('Saving models, the best accuracy is {} ......'.format(best_top1))
                 save_checkpoint({
                     'epoch': epoch,
-                    'net': net.state_dict() if args.cuda == 1 else net.module.state_dict(),
+                    'net': net.module.state_dict(),
                     'prec@1': test_top1,
                     'prec@5': test_top5,
                 }, is_best, args.save_root)
