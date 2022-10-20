@@ -53,7 +53,8 @@ parser.add_argument('--net_name', type=str, required=True, help='name of basenet
 
 args, unparsed = parser.parse_known_args()
 
-args.save_root = os.path.join(f'results/{args.net_name}', args.note)
+# args.save_root = os.path.join(f'results/{args.net_name}', args.note)
+args.save_root = os.path.join(f'/root/autodl-tmp/results/{args.net_name}', args.note)
 create_exp_dir(args.save_root)
 
 log_format = '%(message)s'

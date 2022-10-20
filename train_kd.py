@@ -77,7 +77,8 @@ parser.add_argument('--att_f', type=float, default=1.0, help='attention factor o
 
 args, unparsed = parser.parse_known_args()
 
-args.save_root = os.path.join(f'results/kd/{args.s_name}', args.note)
+# args.save_root = os.path.join(f'results/kd/{args.s_name}', args.note)
+args.save_root = os.path.join(f'/root/autodl-tmp/results/kd_{args.s_name}', args.note)
 create_exp_dir(args.save_root)
 
 log_format = '%(message)s'
@@ -110,7 +111,7 @@ def main():
         local_rank = 0
 
     logging.info('----------- Network Initialization --------------')
-    snet, _ = define_tsnet(name=args.s_name, num_class=args.num_class, net_type=args.s_type, first_ch=args.s_ch, cuda=args.cuda)
+    snet, _ = define_tsnet(name=args.s_name, num_class=args.num_class, net_type=args.s_type, flag='s', kd_ch=(args.s_ch, args.t_ch), first_ch=args.s_ch, cuda=args.cuda)
     checkpoint = torch.load(args.s_init)
     load_pretrained_model(snet, checkpoint['net'])
     if local_rank == 0:
@@ -306,7 +307,8 @@ def train(train_loader, nets, optimizer, criterions, epoch):
         cls_loss = criterionCls(out_s, target)
         # print('kd_mode: {}, bool: {}, bool: {}'.format(args.kd_mode, (args.kd_mode == 'logits'), args.kd_mode in ['logits', 'st']))
         if args.kd_mode in ['logits', 'st']:
-            kd_loss = criterionKD(out_s, out_t.detach()) * args.lambda_kd
+            # kd_loss = criterionKD(out_s, out_t.detach()) * args.lambda_kd
+            kd_loss = (criterionKD(out_s, out_t.detach()) + criterionKD(stem_s, stem_t.detach()))/2.0 * args.lambda_kd
 
         elif args.kd_mode in ['at', 'sp']:
             kd_loss1 = criterionKD(stem_s, stem_t.detach()) * args.lambda_kd
