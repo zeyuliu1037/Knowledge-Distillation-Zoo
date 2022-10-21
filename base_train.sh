@@ -1,14 +1,26 @@
-CUDA_VISIBLE_DEVICES=4 python -u train_base.py \
+CUDA_VISIBLE_DEVICES=3 python -u train_base.py \
                            --data_name cifar10 \
                            --epochs 600 \
-                           --lr 0.1 \
-                           --optimizer SGD \
+                           --lr 1e-4 \
+                           --optimizer Adam \
                            --print_freq 200 \
                            --num_class 10 \
-                           --net_name resnet18 \
+                           --net_name vgg16 \
                            --net_type 'cus' \
                            --first_ch 4 \
-                           --note base-c10-resnet18_cus4_1018
+                           --note base-c10-vgg18_cus4
+
+# CUDA_VISIBLE_DEVICES=4 python -u train_base.py \
+#                            --data_name cifar10 \
+#                            --epochs 600 \
+#                            --lr 0.1 \
+#                            --optimizer SGD \
+#                            --print_freq 200 \
+#                            --num_class 10 \
+#                            --net_name resnet18 \
+#                            --net_type 'cus' \
+#                            --first_ch 8 \
+#                            --note base-c10-resnet18_cus4_1018
                            # --pretrained 'results/resnet18/base-c10-resnet18_cus64_1017/model_best_9122.pth.tar'
                         #    --pretrained 'model_t/ann_vgg16_light_cifar10_202209290044.pth' \
 

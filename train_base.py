@@ -188,7 +188,7 @@ def main():
     best_top1 = 0
     best_top5 = 0
     if args.cuda == 1:
-        net = net.cuda()
+        net = net = torch.nn.DataParallel(net).cuda()
     else:
         net = net.cuda()
         net = torch.nn.parallel.DistributedDataParallel(net)

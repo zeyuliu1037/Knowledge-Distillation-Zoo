@@ -308,7 +308,15 @@ def train(train_loader, nets, optimizer, criterions, epoch):
         # print('kd_mode: {}, bool: {}, bool: {}'.format(args.kd_mode, (args.kd_mode == 'logits'), args.kd_mode in ['logits', 'st']))
         if args.kd_mode in ['logits', 'st']:
             # kd_loss = criterionKD(out_s, out_t.detach()) * args.lambda_kd
-            kd_loss = (criterionKD(out_s, out_t.detach()) + criterionKD(stem_s, stem_t.detach()))/2.0 * args.lambda_kd
+            if not isinstance(stem_s, list):
+                kd_loss = (criterionKD(out_s, out_t.detach()) + criterionKD(stem_s, stem_t.detach()))/2.0 * args.lambda_kd
+            else:
+                out_kd_loss = criterionKD(out_s, out_t.detach())
+                stem_kd_loss = []
+                for j in range(len(stem_s)):
+                    stem_kd_loss.append(criterionKD(stem_s[j], stem_t[j].detach()))
+                print('out_kd_loss: {}, stem_kd_loss: {}'.format(out_kd_loss, stem_kd_loss))
+                kd_loss = (out_kd_loss + sum(stem_kd_loss)/len(stem_kd_loss))/2.0 * args.lambda_kd
 
         elif args.kd_mode in ['at', 'sp']:
             kd_loss1 = criterionKD(stem_s, stem_t.detach()) * args.lambda_kd
