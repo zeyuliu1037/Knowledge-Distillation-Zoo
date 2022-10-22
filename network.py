@@ -4,7 +4,7 @@ from __future__ import division
 import torch
 import torch.nn as nn
 from utils import HoyerBiAct, customConv2
-from resnet import resnet20, resnet20_s, BasicBlock
+from resnet import resnet20, resnet20_s, resnet20_multi, resnet20_s_multi
 import torch.nn.functional as F
 
 
@@ -17,6 +17,8 @@ def define_tsnet(name, num_class, net_type='ori', first_ch=64, flag='t', kd_ch=(
 
         elif name == 'vgg16':
             net = spike_vgg16(num_class=num_class, net_type=net_type, first_ch=first_ch)
+        elif name == 'resnet20_multi':
+            net = resnet20_multi(num_class=num_class, net_type=net_type, first_ch=first_ch)
         else:
             raise Exception('model name does not exist.')
     elif flag == 's':
@@ -25,6 +27,9 @@ def define_tsnet(name, num_class, net_type='ori', first_ch=64, flag='t', kd_ch=(
 
         elif name == 'vgg16':
             net = spike_vgg16_s(num_class=num_class, net_type=net_type, first_ch=first_ch, kd_ch=kd_ch)
+        
+        elif name == 'resnet20_multi':
+            net = resnet20_s_multi(num_class=num_class, net_type=net_type, first_ch=first_ch, kd_ch=kd_ch)
         else:
             raise Exception('model name does not exist.')
     # if cuda:
@@ -57,17 +62,6 @@ def define_tsnet(name, num_class, net_type='ori', first_ch=64, flag='t', kd_ch=(
     #     print('\n Missing keys : {}\n Unexpected Keys: {}\n best accuracy: {}'.format(missing_keys, unexpected_keys, state['prec@1']))  
 
     return net, start_epoch
-
-
-def resnet20(pretrained=False, **kwargs):
-    """Constructs a BiRealNet-20 model. """
-    model = HoyerResNet(BasicBlock, [4, 4, 4, 4], **kwargs)
-    return model
-
-def resnet20_s(pretrained=False, **kwargs):
-    """Constructs a BiRealNet-20 model. """
-    model = HoyerResNet_S(BasicBlock, [4, 4, 4, 4], **kwargs)
-    return model
 
 cfg = {
     'VGG11': [64, 'M', 128, 'M', 256, 256, 'M', 512, 512, 'M', 512, 512],

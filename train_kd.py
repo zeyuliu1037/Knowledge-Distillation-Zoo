@@ -77,7 +77,7 @@ parser.add_argument('--att_f', type=float, default=1.0, help='attention factor o
 
 args, unparsed = parser.parse_known_args()
 
-args.save_root = os.path.join(f'results/kd/{args.s_name}', args.note)
+args.save_root = os.path.join(f'results/{args.kd_mode}/{args.s_name}', args.note)
 # args.save_root = os.path.join(f'/root/autodl-tmp/results/kd_{args.s_name}', args.note)
 create_exp_dir(args.save_root)
 
@@ -319,9 +319,14 @@ def train(train_loader, nets, optimizer, criterions, epoch):
                 kd_loss = (out_kd_loss + sum(stem_kd_loss)/len(stem_kd_loss))/2.0 * args.lambda_kd
 
         elif args.kd_mode in ['at', 'sp']:
-            kd_loss1 = criterionKD(stem_s, stem_t.detach()) * args.lambda_kd
-            kd_loss2 = criterionKD2(out_s, out_t.detach()) * 0.1
-            kd_loss = (kd_loss1 + kd_loss2) / 2.0
+            assert isinstance(stem_s, list)
+            kd_loss_at = []
+            for j in range(len(stem_s)):
+                kd_loss_at.append(criterionKD(stem_s[j], stem_t[j].detach()))
+            kd_loss = sum(kd_loss_at)/len(kd_loss_at) * args.lambda_kd
+            # kd_loss1 = criterionKD(stem_s, stem_t.detach()) * args.lambda_kd
+            # kd_loss2 = criterionKD2(out_s, out_t.detach()) * 0.1
+            # kd_loss = (kd_loss1 + kd_loss2) / 2.0
         else:
             raise Exception(f'Invalid kd mode...{args.kd_mode}')
         act_loss = act_out*0
@@ -331,8 +336,8 @@ def train(train_loader, nets, optimizer, criterions, epoch):
         cls_losses.update(cls_loss.item(), img.size(0))
         kd_losses.update(kd_loss.item(), img.size(0))
         if args.kd_mode == 'at':
-            kd1_losses.update(kd_loss1.item(), img.size(0))
-            kd2_losses.update(kd_loss2.item(), img.size(0))
+            kd1_losses.update((kd_loss_at[0].item())* args.lambda_kd, img.size(0))
+            kd2_losses.update((kd_loss_at[1].item())* args.lambda_kd, img.size(0))
         act_losses.update(act_loss, img.size(0))
         top1.update(prec1.item(), img.size(0))
         top5.update(prec5.item(), img.size(0))
@@ -396,9 +401,13 @@ def test(test_loader, nets, criterions, epoch):
         if args.kd_mode in ['logits', 'st']:
             kd_loss  = criterionKD(out_s, out_t.detach()) * args.lambda_kd
         elif args.kd_mode in ['at', 'sp']:
-            kd_loss1 = criterionKD(stem_s, stem_t.detach()) * args.lambda_kd
-            kd_loss2 = criterionKD2(out_s, out_t.detach()) * 0.1
-            kd_loss = (kd_loss1 + kd_loss2) / 2.0
+            # kd_loss1 = criterionKD(stem_s, stem_t.detach()) * args.lambda_kd
+            # kd_loss2 = criterionKD2(out_s, out_t.detach()) * 0.1
+            # kd_loss = (kd_loss1 + kd_loss2) / 2.0
+            kd_loss_at = []
+            for j in range(len(stem_s)):
+                kd_loss_at.append(criterionKD(stem_s[j], stem_t[j].detach()))
+            kd_loss = sum(kd_loss_at)/len(kd_loss_at) * args.lambda_kd
         else:
             raise Exception('Invalid kd mode...')
 

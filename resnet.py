@@ -42,7 +42,7 @@ class BasicBlock(nn.Module):
         return out
 
 class HoyerResNet(nn.Module):
-    def __init__(self, block, num_blocks, num_class=10, net_type='ori', first_ch=64, loss_type='sum', spike_type = 'cw', start_spike_layer=0, x_thr_scale=1.0):
+    def __init__(self, block=None, num_blocks=None, num_class=10, net_type='ori', first_ch=64, loss_type='sum', spike_type = 'cw', start_spike_layer=0, x_thr_scale=1.0):
         
         super(HoyerResNet, self).__init__()
         self.inplanes = first_ch
@@ -141,7 +141,7 @@ class HoyerResNet(nn.Module):
         return stem_out, x, act_out
 
 class HoyerResNet_S(nn.Module):
-    def __init__(self, block, num_blocks, kd_ch=(16, 64), num_class=10, net_type='ori', first_ch=64, loss_type='sum', spike_type = 'cw', start_spike_layer=0, x_thr_scale=1.0):
+    def __init__(self, block=None, num_blocks=None, kd_ch=(16, 64), num_class=10, net_type='ori', first_ch=64, loss_type='sum', spike_type = 'cw', start_spike_layer=0, x_thr_scale=1.0):
         
         super(HoyerResNet_S, self).__init__()
         self.inplanes = first_ch
@@ -251,7 +251,7 @@ class HoyerResNet_Multi(HoyerResNet):
         for i,layer in enumerate(self.conv1):
             x = layer(x)
             if i == 1 and isinstance(layer, nn.BatchNorm2d):
-                stem_out.append(self.kd_conv(F.relu(x.clone())))
+                stem_out.append(F.relu(x.clone()))
         # x = self.conv1(x)
         x = self.maxpool(x)
         x = self.bn1(x) 
@@ -300,3 +300,23 @@ class HoyerResNet_S_Multi(HoyerResNet_S):
         x = self.fc(x)
 
         return stem_out, x, act_out
+
+def resnet20(pretrained=False, **kwargs):
+    """Constructs a BiRealNet-20 model. """
+    model = HoyerResNet(block=BasicBlock, num_blocks=[4, 4, 4, 4], **kwargs)
+    return model
+
+def resnet20_s(pretrained=False, **kwargs):
+    """Constructs a BiRealNet-20 model. """
+    model = HoyerResNet_S(block=BasicBlock, num_blocks=[4, 4, 4, 4], **kwargs)
+    return model
+
+def resnet20_multi(pretrained=False, **kwargs):
+    """Constructs a BiRealNet-20 model. """
+    model = HoyerResNet_Multi(block=BasicBlock, num_blocks=[4, 4, 4, 4], **kwargs)
+    return model
+
+def resnet20_s_multi(pretrained=False, **kwargs):
+    """Constructs a BiRealNet-20 model. """
+    model = HoyerResNet_S_Multi(block=BasicBlock, num_blocks=[4, 4, 4, 4], **kwargs)
+    return model

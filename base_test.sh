@@ -6,9 +6,9 @@ CUDA_VISIBLE_DEVICES=0 python -u train_base.py \
                            --optimizer Adam \
                            --print_freq 200 \
                            --num_class 10 \
-                           --net_name vgg16 \
+                           --net_name resnet20 \
                            --test_only \
                            --net_type 'cus' \
-                           --first_ch 64 \
-                           --pretrained 'results/kd/vgg16/at-c10-vgg16-ch64-with-act-loss/model_best_9207.pth.tar' \
+                           --first_ch 4 \
+                           --pretrained 'results/resnet18/base-c10-resnet18_cus4/model_best_8804.pth.tar' \
                            --note just-test_only
