@@ -1,5 +1,5 @@
 CUDA_VISIBLE_DEVICES=0 python -u train_base.py \
-                           --save_root "./vgg16/base/" \
+                           --save_root "/root/autodl-tmp/test_only" \
                            --data_name cifar10 \
                            --epochs 1 \
                            --lr 0.0001 \
@@ -10,5 +10,5 @@ CUDA_VISIBLE_DEVICES=0 python -u train_base.py \
                            --test_only \
                            --net_type 'cus' \
                            --first_ch 4 \
-                           --pretrained 'results/resnet18/base-c10-resnet18_cus4/model_best_8804.pth.tar' \
+                           --pretrained '/root/autodl-tmp/results/resnet_cus4_8804.pth.tar' \
                            --note just-test_only

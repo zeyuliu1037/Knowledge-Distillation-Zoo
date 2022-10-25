@@ -39,6 +39,7 @@ parser.add_argument('--cuda', type=int, default=1)
 
 parser.add_argument('--net_type', type=str, default='ori')
 parser.add_argument('--first_ch', type=int, default=64)
+parser.add_argument('--flag', type=str, default='t')
 # others
 parser.add_argument('--seed', type=int, default=2, help='random seed')
 parser.add_argument('--note', type=str, default='try', help='note for this run')
@@ -53,7 +54,7 @@ parser.add_argument('--net_name', type=str, required=True, help='name of basenet
 
 args, unparsed = parser.parse_known_args()
 
-args.save_root = os.path.join(f'results/{args.net_name}', args.note)
+args.save_root = os.path.join(f'{args.save_root}/{args.net_name}', args.note)
 # args.save_root = os.path.join(f'/root/autodl-tmp/results/{args.net_name}', args.note)
 create_exp_dir(args.save_root)
 
@@ -87,7 +88,7 @@ def main():
         local_rank = 0
 
     logging.info('----------- Network Initialization --------------')
-    net, start_epoch = define_tsnet(name=args.net_name, num_class=args.num_class, net_type=args.net_type, first_ch=args.first_ch, \
+    net, start_epoch = define_tsnet(name=args.net_name, num_class=args.num_class, net_type=args.net_type, first_ch=args.first_ch, flag=args.flag, \
                         cuda=args.cuda, pretrained=args.pretrained, resume=args.resume)
     if local_rank == 0:
         logging.info('%s', net)

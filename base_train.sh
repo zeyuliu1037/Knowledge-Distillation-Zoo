@@ -1,4 +1,4 @@
-CUDA_VISIBLE_DEVICES=3 python -u train_base.py \
+CUDA_VISIBLE_DEVICES=0 python -u train_base.py \
                            --data_name cifar10 \
                            --epochs 600 \
                            --lr 1e-4 \
@@ -8,7 +8,7 @@ CUDA_VISIBLE_DEVICES=3 python -u train_base.py \
                            --net_name vgg16 \
                            --net_type 'cus' \
                            --first_ch 4 \
-                           --note base-c10-vgg18_cus4
+                           --note base-c10-vgg16_cus4
 
 # CUDA_VISIBLE_DEVICES=4 python -u train_base.py \
 #                            --data_name cifar10 \

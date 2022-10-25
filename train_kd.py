@@ -77,7 +77,7 @@ parser.add_argument('--att_f', type=float, default=1.0, help='attention factor o
 
 args, unparsed = parser.parse_known_args()
 
-args.save_root = os.path.join(f'results/{args.kd_mode}/{args.s_name}', args.note)
+args.save_root = os.path.join(f'{args.save_root}/{args.kd_mode}/{args.s_name}', args.note)
 # args.save_root = os.path.join(f'/root/autodl-tmp/results/kd_{args.s_name}', args.note)
 create_exp_dir(args.save_root)
 
@@ -315,14 +315,15 @@ def train(train_loader, nets, optimizer, criterions, epoch):
                 stem_kd_loss = []
                 for j in range(len(stem_s)):
                     stem_kd_loss.append(criterionKD(stem_s[j], stem_t[j].detach()))
-                print('out_kd_loss: {}, stem_kd_loss: {}'.format(out_kd_loss, stem_kd_loss))
+                # print('out_kd_loss: {}, stem_kd_loss: {}'.format(out_kd_loss, stem_kd_loss))
                 kd_loss = (out_kd_loss + sum(stem_kd_loss)/len(stem_kd_loss))/2.0 * args.lambda_kd
 
         elif args.kd_mode in ['at', 'sp']:
             assert isinstance(stem_s, list)
             kd_loss_at = []
             for j in range(len(stem_s)):
-                kd_loss_at.append(criterionKD(stem_s[j], stem_t[j].detach()))
+                scale = 1.0 if j > 0 else 100.0
+                kd_loss_at.append(criterionKD(stem_s[j], stem_t[j].detach()) * scale)
             kd_loss = sum(kd_loss_at)/len(kd_loss_at) * args.lambda_kd
             # kd_loss1 = criterionKD(stem_s, stem_t.detach()) * args.lambda_kd
             # kd_loss2 = criterionKD2(out_s, out_t.detach()) * 0.1
@@ -440,7 +441,14 @@ def adjust_lr(optimizer, epoch):
     # lr_list =  [args.lr] * 100
     # lr_list += [args.lr*scale] * 50
     # lr_list += [args.lr*scale*scale] * 50
-    lr_interval = [360, 120, 60, 60] if args.epochs == 600 else [30, 15, 8, 7]
+    if args.epochs == 600:
+        lr_interval = [360, 120, 60, 60]
+    elif args.epochs == 300:
+        lr_interval = [180, 60, 30, 30]
+    elif args.epochs == 120:
+        lr_interval = [60, 30, 15, 15]
+    elif args.epochs == 30:
+        lr_interval = [15, 7, 3, 3]
     scale   = 0.2
     lr_list =  [args.lr] * lr_interval[0]
     lr_list += [args.lr*scale] * lr_interval[1]
