@@ -20,6 +20,22 @@ from utils import AverageMeter, accuracy, transform_time
 from utils import load_pretrained_model, save_checkpoint
 from utils import create_exp_dir, count_parameters_in_MB
 from network import define_tsnet
+from utils import HoyerBiAct
+
+all_layers_act = torch.tensor([0.0, 0.0, 0.0, 0.0])
+
+def cal_act_stas(x, min_thr_scale, max_thr_scale, thr):
+    min = (x.clone().detach()<=min_thr_scale*thr).sum()
+    max = (x.clone().detach()>=max_thr_scale*thr).sum()
+    total = x.view(-1).shape[0]
+    return torch.tensor([min, total-min-max, max, total])
+
+# 定义 forward hook function
+def hook_fn_forward(module, input, output):
+    # print(module, torch.max(output))
+    # print((input[0]).shape)
+    global all_layers_act
+    all_layers_act += cal_act_stas(output, 0.0, 1.0, 1.0)
 
 parser = argparse.ArgumentParser(description='train base net')
 
@@ -50,6 +66,7 @@ parser.add_argument('--pretrained', default='', type=str, help='pretrained model
 # net and dataset choosen
 parser.add_argument('--data_name', type=str, required=True, help='name of dataset') # cifar10/cifar100
 parser.add_argument('--net_name', type=str, required=True, help='name of basenet')  # resnet20/resnet110
+parser.add_argument('--use_hook', action='store_true', help='if use hook')  
 
 
 args, unparsed = parser.parse_known_args()
@@ -90,6 +107,11 @@ def main():
     logging.info('----------- Network Initialization --------------')
     net, start_epoch = define_tsnet(name=args.net_name, num_class=args.num_class, net_type=args.net_type, first_ch=args.first_ch, flag=args.flag, \
                         cuda=args.cuda, pretrained=args.pretrained, resume=args.resume)
+    if args.use_hook:
+        for name, module in net.named_modules():
+            if isinstance(module, (HoyerBiAct, nn.ReLU)):
+                # print('module name: {}'.format(name))
+                module.register_forward_hook(hook_fn_forward)
     if local_rank == 0:
         logging.info('%s', net)
         logging.info("param size = %fMB", count_parameters_in_MB(net))
@@ -279,6 +301,7 @@ def test(test_loader, net, criterion):
     net.eval()
 
     end = time.time()
+    relu_total_num = torch.tensor([0.0, 0.0, 0.0, 0.0])
     for i, (img, target) in enumerate(test_loader, start=1):
         if args.cuda:
             img = img.cuda(non_blocking=True)
@@ -294,8 +317,15 @@ def test(test_loader, net, criterion):
         top1.update(prec1.item(), img.size(0))
         top5.update(prec5.item(), img.size(0))
 
-    f_l = [losses.avg, top1.avg, top5.avg]
-    logging.info('Testing: Loss: {:.4f}, Prec@1: {:.2f}, Prec@5: {:.2f}'.format(*f_l))
+        if args.use_hook:
+            global all_layers_act
+            relu_total_num += all_layers_act
+            all_layers_act = torch.tensor([0.0, 0.0, 0.0, 0.0])
+
+    f_l = [losses.avg, top1.avg, \
+    top5.avg,relu_total_num[0]/relu_total_num[-1]*100, relu_total_num[1]/relu_total_num[-1]*100, relu_total_num[2]/relu_total_num[-1]*100]
+    
+    logging.info('Testing: Loss: {:.4f}, Prec@1: {:.2f}, Prec@5: {:.2f}, output 0: {:.2f}%, relu: {:.2f}%, output threshold: {:.2f}%,'.format(*f_l))
 
     return top1.avg, top5.avg
 
@@ -304,6 +334,8 @@ def adjust_lr(optimizer, epoch):
     #  [360, 480, 540]
     if args.epochs == 600:
         lr_interval = [360, 120, 60, 60]
+    if args.epochs == 300:
+        lr_interval = [180, 60, 30, 30]
     elif args.epochs == 120:
         lr_interval = [60, 30, 15, 15]
     elif args.epochs == 30:

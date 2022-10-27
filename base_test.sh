@@ -9,6 +9,7 @@ CUDA_VISIBLE_DEVICES=0 python -u train_base.py \
                            --net_name resnet20 \
                            --test_only \
                            --net_type 'cus' \
-                           --first_ch 4 \
-                           --pretrained '/root/autodl-tmp/results/resnet_cus4_8804.pth.tar' \
+                           --first_ch 8 \
+                           --pretrained '/root/autodl-tmp/results/at/resnet20_multi/at-c10-r20_cus64_cus8_100kd1_100kd_small_lr_0004_90.2/model_best.pth.tar' \
+                           --use_hook \
                            --note just-test_only

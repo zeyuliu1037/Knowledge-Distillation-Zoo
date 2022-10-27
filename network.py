@@ -19,6 +19,8 @@ def define_tsnet(name, num_class, net_type='ori', first_ch=64, flag='t', kd_ch=(
             net = spike_vgg16(num_class=num_class, net_type=net_type, first_ch=first_ch)
         elif name == 'resnet20_multi':
             net = resnet20_multi(num_class=num_class, net_type=net_type, first_ch=first_ch)
+        elif name == 'vgg16_ori':
+            net = vgg16(num_class=num_class, net_type=net_type, first_ch=first_ch, linear_dropout=0.1, conv_dropout=0.1)
         else:
             raise Exception('model name does not exist.')
     elif flag == 's':
@@ -30,6 +32,8 @@ def define_tsnet(name, num_class, net_type='ori', first_ch=64, flag='t', kd_ch=(
         
         elif name == 'resnet20_multi':
             net = resnet20_s_multi(num_class=num_class, net_type=net_type, first_ch=first_ch, kd_ch=kd_ch)
+        elif name == 'vgg16_ori':
+            net = vgg16_s(num_class=num_class, net_type=net_type, first_ch=first_ch, kd_ch=kd_ch, linear_dropout=0.1, conv_dropout=0.1)
         else:
             raise Exception('model name does not exist.')
     # if cuda:
@@ -128,6 +132,7 @@ class spike_vgg16(nn.Module):
             out = l(out)
             if first_layer and isinstance(l, nn.BatchNorm2d):
                 first_layer = False
+                # stem_out = F.relu(out.clone())
                 stem_out = out.clone()
 
             if isinstance(l, HoyerBiAct):
@@ -243,8 +248,8 @@ class spike_vgg16_s(nn.Module):
             out = l(out)
             if first_layer and isinstance(l, nn.BatchNorm2d):
                 first_layer = False
-                stem_out = self.kd_conv(F.relu((out.clone()))
-)
+                # stem_out = F.relu(self.kd_conv(F.relu((out.clone()))))
+                stem_out = self.kd_conv(F.relu((out.clone())))
             if isinstance(l, HoyerBiAct):
                 act_loss += self.hoyer_loss(out.clone())
                 
@@ -297,6 +302,108 @@ class spike_vgg16_s(nn.Module):
                         nn.Dropout(self.conv_dropout)]
             in_channels = x
         return nn.Sequential(*layers)
+
+
+class vgg16(nn.Module):
+    def __init__(self, num_class=10, net_type='ori', first_ch=64, linear_dropout=0.1, conv_dropout=0.1, loss_type='sum', im_size=224, spike_type='cw'):
+        super(vgg16, self).__init__()
+        self.if_spike = True
+        self.conv_dropout = conv_dropout
+        self.num_class = num_class
+        self.net_type = net_type
+        self.first_ch = first_ch
+        self.features = self._make_layers(cfg['VGG16'])
+
+        if num_class == 1000: # if data_name=='IMAGENET':
+            self.classifier = nn.Sequential(
+                        nn.Linear((im_size//32)**2*512, 4096, bias=False),
+                        nn.ReLU(inplace=True),
+                        nn.Dropout(linear_dropout),
+                        nn.Linear(4096, 4096, bias=False),
+                        nn.ReLU(inplace=True),
+                        nn.Dropout(linear_dropout),
+                        nn.Linear(4096, num_class, bias=False)
+            )
+        elif num_class == 10: # elif data_name=='CIFAR10':
+            self.classifier = nn.Sequential(
+                            nn.Linear(2048, 4096, bias=False),
+                            nn.ReLU(inplace=True),
+                            nn.Dropout(linear_dropout),
+                            nn.Linear(4096, 4096, bias=False),
+                            nn.ReLU(inplace=True),
+                            nn.Dropout(linear_dropout),
+                            nn.Linear(4096, num_class, bias=False))
+        # self._initialize_weights2()
+                            
+    def forward(self, x):
+        act_loss = 0.0
+        first_layer = True
+        out = x
+        for l in self.features:
+            out = l(out)
+            if first_layer and isinstance(l, nn.ReLU):
+                first_layer = False
+                stem_out = F.relu(out.clone())
+            # out = l(out)
+        
+        out = out.view(out.size(0), -1)
+        out = self.classifier(out)
+ 
+        return stem_out, out, act_loss
+
+    def _make_layers(self, cfg):
+        layers = []
+        in_channels = 3
+        if self.num_class == 1000:
+            cfg.append('M')
+        for i,x in enumerate(cfg):
+            
+            if x == 'M':
+                continue
+            if i == 0 and self.net_type=='cus':
+                x = self.first_ch
+                conv = customConv2(in_channels=3, out_channels=x, kernel_size=(3 ,3), stride = 1, padding = 1)
+                # conv = customConv2(in_channels=3, out_channels=16, kernel_size=(7, 7), stride = 6, padding = 1)
+            else:
+                conv = nn.Conv2d(in_channels, x, kernel_size=3, padding=1, stride=1, bias=False)
+
+            if i+1 < len(cfg) and cfg[i+1] == 'M':
+                layers += [
+                        conv,
+                        nn.MaxPool2d(kernel_size=2, stride=2),
+                        nn.BatchNorm2d(x),
+                        nn.ReLU(inplace=True),  
+                        nn.Dropout(self.conv_dropout),
+                        ]
+            else:
+                layers += [
+                        conv,
+                        nn.BatchNorm2d(x),
+                        nn.ReLU(inplace=True),
+                        nn.Dropout(self.conv_dropout)]
+            in_channels = x
+        return nn.Sequential(*layers)
+
+class vgg16_s(vgg16):
+    def __init__(self, kd_ch=(16, 64), **kwargs):
+        super(vgg16_s, self).__init__(**kwargs)
+        self.kd_conv = nn.Conv2d(kd_ch[0], kd_ch[1], kernel_size=1, stride=1, bias=False)
+        
+    def forward(self, x):
+        act_loss = 0.0
+        first_layer = True
+        out = x
+        for l in self.features:
+            out = l(out)
+            if first_layer and isinstance(l, nn.ReLU):
+                first_layer = False
+                stem_out = self.kd_conv(F.relu((out.clone())))
+            # out = l(out)
+        
+        out = out.view(out.size(0), -1)
+        out = self.classifier(out)
+ 
+        return stem_out, out, act_loss
 
 def define_paraphraser(in_channels_t, k, use_bn, cuda=True):
     net = paraphraser(in_channels_t, k, use_bn)

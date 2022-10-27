@@ -1,14 +1,15 @@
 CUDA_VISIBLE_DEVICES=0 python -u train_base.py \
+                           --save_root '/root/autodl-tmp/results' \
                            --data_name cifar10 \
                            --epochs 600 \
                            --lr 1e-4 \
                            --optimizer Adam \
                            --print_freq 200 \
                            --num_class 10 \
-                           --net_name vgg16 \
-                           --net_type 'cus' \
-                           --first_ch 4 \
-                           --note base-c10-vgg16_cus4
+                           --net_name vgg16_ori \
+                           --net_type 'ori' \
+                           --first_ch 64 \
+                           --note base-c10-vgg16_ori_ori64_withot_pretrain
 
 # CUDA_VISIBLE_DEVICES=4 python -u train_base.py \
 #                            --data_name cifar10 \
